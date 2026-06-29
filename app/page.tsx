@@ -1,65 +1,87 @@
-import Image from "next/image";
+import { HomeScreen } from "@/components/HomeScreen";
+import type { Product } from "@/components/ProductCard";
+
+const categories = [
+  { name: "Кофе", icon: "☕", active: true },
+  { name: "Выпечка", icon: "🥐" },
+  { name: "Перекусы", icon: "🥪" },
+  { name: "Десерты", icon: "🍰" },
+  { name: "Напитки", icon: "🥤" },
+];
+
+const products: Product[] = [
+  {
+    id: "cappuccino",
+    name: "Капучино",
+    volume: "300 мл",
+    price: 230,
+    image:
+      "https://images.unsplash.com/photo-1572442388796-11668a67e53d?auto=format&fit=crop&w=640&q=85",
+  },
+  {
+    id: "latte",
+    name: "Латте",
+    volume: "350 мл",
+    price: 250,
+    image:
+      "https://images.unsplash.com/photo-1561882468-9110e03e0f78?auto=format&fit=crop&w=640&q=85",
+  },
+  {
+    id: "americano",
+    name: "Американо",
+    volume: "250 мл",
+    price: 190,
+    image:
+      "https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?auto=format&fit=crop&w=640&q=85",
+  },
+  {
+    id: "raf",
+    name: "Раф",
+    volume: "300 мл",
+    price: 280,
+    image:
+      "https://images.unsplash.com/photo-1517701550927-30cf4ba1dba5?auto=format&fit=crop&w=640&q=85",
+  },
+  {
+    id: "flat-white",
+    name: "Флэт уайт",
+    volume: "250 мл",
+    price: 260,
+    image:
+      "https://images.unsplash.com/photo-1485808191679-5f86510681a2?auto=format&fit=crop&w=640&q=85",
+  },
+  {
+    id: "cocoa",
+    name: "Какао",
+    volume: "300 мл",
+    price: 240,
+    image:
+      "https://images.unsplash.com/photo-1542990253-0d0f5be5f0ed?auto=format&fit=crop&w=640&q=85",
+  },
+  {
+    id: "croissant",
+    name: "Круассан",
+    volume: "90 г",
+    price: 210,
+    image:
+      "https://images.unsplash.com/photo-1555507036-ab1f4038808a?auto=format&fit=crop&w=640&q=85",
+  },
+  {
+    id: "cheesecake",
+    name: "Чизкейк",
+    volume: "120 г",
+    price: 290,
+    image:
+      "https://images.unsplash.com/photo-1533134242443-d4fd215305ad?auto=format&fit=crop&w=640&q=85",
+  },
+];
 
 export default function Home() {
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+    <HomeScreen
+      categories={categories}
+      products={products}
+      hasRepeatOrder={true}
+    />
   );
 }
