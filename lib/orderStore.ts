@@ -18,6 +18,7 @@ export type Order = {
   phone: string;
   comment?: string;
   createdAt: string;
+  statusChangedAt?: number;
   items: OrderItem[];
   status: OrderStatus;
 };
@@ -227,6 +228,7 @@ export function createOrder(input: CreateOrderInput) {
     phone: input.phone,
     comment: input.comment?.trim() || undefined,
     createdAt: getCurrentTime(),
+    statusChangedAt: Date.now(),
     items: input.items,
     status: "new",
   };
@@ -238,11 +240,16 @@ export function createOrder(input: CreateOrderInput) {
 
 export function updateOrderStatus(orderId: string, status: OrderStatus) {
   hydrateOrders();
-  setOrders(
-    orders.map((order) =>
-      order.id === orderId ? { ...order, status } : order,
-    ),
-  );
+  const targetOrder = orders.find((order) => order.id === orderId);
+
+  if (!targetOrder) {
+    return;
+  }
+
+  setOrders([
+    ...orders.filter((order) => order.id !== orderId),
+    { ...targetOrder, status, statusChangedAt: Date.now() },
+  ]);
 }
 
 export function useOrders() {
