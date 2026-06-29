@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { BottomNavigation } from "@/components/BottomNavigation";
 import { CartBar } from "@/components/CartBar";
 import { CartModal } from "@/components/CartModal";
@@ -15,6 +15,7 @@ import type { Product } from "@/components/ProductCard";
 import { RepeatOrderCard } from "@/components/RepeatOrderCard";
 import { SearchBar } from "@/components/SearchBar";
 import { SectionTitle } from "@/components/SectionTitle";
+import { createOrder, useOrder } from "@/lib/orderStore";
 
 type Category = {
   name: string;
@@ -36,7 +37,16 @@ export function HomeScreen({
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
-  const [orderNumber, setOrderNumber] = useState<string | null>(null);
+  const [activeOrderId, setActiveOrderId] = useState<string | null>(null);
+  const activeOrder = useOrder(activeOrderId);
+
+  useEffect(() => {
+    const savedOrderId = localStorage.getItem("kafema-active-order-id");
+
+    if (savedOrderId) {
+      setActiveOrderId(savedOrderId);
+    }
+  }, []);
 
   const cartCount = useMemo(
     () => cartItems.reduce((sum, item) => sum + item.quantity, 0),
@@ -99,16 +109,34 @@ export function HomeScreen({
     setIsCheckoutOpen(true);
   }
 
-  function confirmOrder() {
-    setOrderNumber(String(Math.floor(Math.random() * 900) + 100));
+  function confirmOrder(customer: {
+    name: string;
+    phone: string;
+    comment?: string;
+  }) {
+    const order = createOrder({
+      customerName: customer.name,
+      phone: customer.phone,
+      comment: customer.comment,
+      items: cartItems.map((item) => ({
+        id: item.product.id,
+        name: item.product.name,
+        volume: item.product.volume,
+        quantity: item.quantity,
+      })),
+    });
+
+    localStorage.setItem("kafema-active-order-id", order.id);
+    setActiveOrderId(order.id);
+    setCartItems([]);
     setIsCheckoutOpen(false);
   }
 
   function returnToMenu() {
-    setOrderNumber(null);
+    localStorage.removeItem("kafema-active-order-id");
+    setActiveOrderId(null);
     setIsCartOpen(false);
     setIsCheckoutOpen(false);
-    setCartItems([]);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -202,9 +230,9 @@ export function HomeScreen({
         />
       ) : null}
 
-      {orderNumber ? (
+      {activeOrder ? (
         <OrderSuccessModal
-          orderNumber={orderNumber}
+          order={activeOrder}
           onBackToMenu={returnToMenu}
         />
       ) : null}

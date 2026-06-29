@@ -9,7 +9,11 @@ type CheckoutModalProps = {
   total: number;
   itemsCount: number;
   onBack: () => void;
-  onConfirm: () => void;
+  onConfirm: (customer: {
+    name: string;
+    phone: string;
+    comment?: string;
+  }) => void;
 };
 
 export function CheckoutModal({
@@ -37,6 +41,10 @@ export function CheckoutModal({
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
+    const formData = new FormData(event.currentTarget);
+    const name = String(formData.get("name") ?? "").trim();
+    const comment = String(formData.get("comment") ?? "").trim();
+
     if (getNationalPhoneDigits(phone).length !== 10) {
       setPhoneError("Введите корректный номер телефона");
       return;
@@ -44,7 +52,7 @@ export function CheckoutModal({
 
     localStorage.setItem("kafema-phone", phone);
     setPhoneError("");
-    onConfirm();
+    onConfirm({ name, phone, comment: comment || undefined });
   }
 
   function handlePhoneChange(event: ChangeEvent<HTMLInputElement>) {

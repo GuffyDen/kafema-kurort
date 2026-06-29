@@ -1,104 +1,27 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
+import {
+  updateOrderStatus,
+  useOrders,
+  type Order,
+  type OrderStatus,
+} from "@/lib/orderStore";
 
-type OrderStatus = "new" | "inProgress" | "ready";
-
-type OrderItem = {
-  name: string;
-  quantity: number;
-};
-
-type BaristaOrder = {
-  id: string;
-  number: string;
-  customerName: string;
-  phone: string;
-  createdAt: string;
-  items: OrderItem[];
-  comment?: string;
-  status: OrderStatus;
-};
+type BoardStatus = Exclude<OrderStatus, "completed">;
 
 type BoardColumn = {
-  status: OrderStatus;
+  status: BoardStatus;
   title: string;
   subtitle: string;
   accent: string;
   badge: string;
   button: {
     label: string;
-    nextStatus?: OrderStatus;
-    completesOrder?: boolean;
+    nextStatus: OrderStatus;
     className: string;
   };
 };
-
-const initialOrders: BaristaOrder[] = [
-  {
-    id: "order-001",
-    number: "001",
-    customerName: "Анна",
-    phone: "+7 (914) 234-56-78",
-    createdAt: "09:42",
-    items: [
-      { name: "Капучино 300 мл", quantity: 2 },
-      { name: "Круассан", quantity: 1 },
-    ],
-    comment: "Один капучино без сахара",
-    status: "new",
-  },
-  {
-    id: "order-002",
-    number: "002",
-    customerName: "Денис",
-    phone: "+7 (924) 112-45-90",
-    createdAt: "09:48",
-    items: [
-      { name: "Латте 350 мл", quantity: 1 },
-      { name: "Чизкейк", quantity: 1 },
-    ],
-    status: "inProgress",
-  },
-  {
-    id: "order-003",
-    number: "003",
-    customerName: "Мария",
-    phone: "+7 (914) 987-65-43",
-    createdAt: "09:55",
-    items: [
-      { name: "Раф 300 мл", quantity: 1 },
-      { name: "Американо 250 мл", quantity: 1 },
-    ],
-    comment: "Раф погорячее",
-    status: "new",
-  },
-  {
-    id: "order-004",
-    number: "004",
-    customerName: "Илья",
-    phone: "+7 (902) 555-31-20",
-    createdAt: "10:01",
-    items: [
-      { name: "Флэт уайт 250 мл", quantity: 2 },
-      { name: "Какао 300 мл", quantity: 1 },
-    ],
-    status: "ready",
-  },
-  {
-    id: "order-005",
-    number: "005",
-    customerName: "Ольга",
-    phone: "+7 (914) 765-12-34",
-    createdAt: "10:04",
-    items: [
-      { name: "Американо 250 мл", quantity: 1 },
-      { name: "Круассан", quantity: 2 },
-    ],
-    comment: "Упаковать с собой",
-    status: "inProgress",
-  },
-];
 
 const boardColumns: BoardColumn[] = [
   {
@@ -109,12 +32,12 @@ const boardColumns: BoardColumn[] = [
     badge: "bg-[#E30613]/10 text-[#E30613]",
     button: {
       label: "Принять",
-      nextStatus: "inProgress",
+      nextStatus: "in_progress",
       className: "bg-[#E30613] text-white shadow-[0_16px_32px_rgba(227,6,19,0.2)]",
     },
   },
   {
-    status: "inProgress",
+    status: "in_progress",
     title: "В работе",
     subtitle: "Готовятся сейчас",
     accent: "bg-[#F5D06F]/18",
@@ -133,42 +56,29 @@ const boardColumns: BoardColumn[] = [
     badge: "bg-emerald-500/10 text-emerald-700",
     button: {
       label: "Выдан",
-      completesOrder: true,
+      nextStatus: "completed",
       className: "bg-emerald-600 text-white shadow-[0_16px_32px_rgba(5,150,105,0.18)]",
     },
   },
 ];
 
 export function AdminPanel() {
-  const [orders, setOrders] = useState<BaristaOrder[]>(initialOrders);
+  const orders = useOrders();
+  const visibleOrders = orders.filter((order) => order.status !== "completed");
 
   const stats = useMemo(
     () =>
-      boardColumns.reduce<Record<OrderStatus, number>>(
+      boardColumns.reduce<Record<BoardStatus, number>>(
         (acc, column) => {
-          acc[column.status] = orders.filter(
+          acc[column.status] = visibleOrders.filter(
             (order) => order.status === column.status,
           ).length;
           return acc;
         },
-        { new: 0, inProgress: 0, ready: 0 },
+        { new: 0, in_progress: 0, ready: 0 },
       ),
-    [orders],
+    [visibleOrders],
   );
-
-  function moveOrder(orderId: string, status: OrderStatus) {
-    setOrders((currentOrders) =>
-      currentOrders.map((order) =>
-        order.id === orderId ? { ...order, status } : order,
-      ),
-    );
-  }
-
-  function completeOrder(orderId: string) {
-    setOrders((currentOrders) =>
-      currentOrders.filter((order) => order.id !== orderId),
-    );
-  }
 
   return (
     <main className="min-h-screen bg-[#F7F7F7] px-6 py-6 text-[#1A1A1A] lg:px-8">
@@ -185,7 +95,7 @@ export function AdminPanel() {
             <Counter label="Новые" value={stats.new} dot="bg-[#E30613]" />
             <Counter
               label="В работе"
-              value={stats.inProgress}
+              value={stats.in_progress}
               dot="bg-[#F5BD1F]"
             />
             <Counter label="Готовы" value={stats.ready} dot="bg-emerald-500" />
@@ -197,9 +107,9 @@ export function AdminPanel() {
             <OrderColumn
               key={column.status}
               column={column}
-              orders={orders.filter((order) => order.status === column.status)}
-              onMove={moveOrder}
-              onComplete={completeOrder}
+              orders={visibleOrders.filter(
+                (order) => order.status === column.status,
+              )}
             />
           ))}
         </section>
@@ -230,13 +140,9 @@ function Counter({
 function OrderColumn({
   column,
   orders,
-  onMove,
-  onComplete,
 }: {
   column: BoardColumn;
-  orders: BaristaOrder[];
-  onMove: (orderId: string, status: OrderStatus) => void;
-  onComplete: (orderId: string) => void;
+  orders: Order[];
 }) {
   return (
     <article className="flex min-h-0 flex-col rounded-[32px] bg-white/58 p-4 shadow-[0_18px_45px_rgba(26,26,26,0.04)]">
@@ -248,7 +154,9 @@ function OrderColumn({
               {column.subtitle}
             </p>
           </div>
-          <span className={`rounded-full px-4 py-2 text-base font-bold ${column.badge}`}>
+          <span
+            className={`rounded-full px-4 py-2 text-base font-bold ${column.badge}`}
+          >
             {orders.length}
           </span>
         </div>
@@ -257,13 +165,7 @@ function OrderColumn({
       <div className="mt-4 flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pr-1">
         {orders.length > 0 ? (
           orders.map((order) => (
-            <OrderCard
-              key={order.id}
-              order={order}
-              column={column}
-              onMove={onMove}
-              onComplete={onComplete}
-            />
+            <OrderCard key={order.id} order={order} column={column} />
           ))
         ) : (
           <div className="flex min-h-44 items-center justify-center rounded-[28px] border border-dashed border-[#E8E8E8] bg-white px-6 text-center text-base font-semibold text-[#777777]">
@@ -278,25 +180,10 @@ function OrderColumn({
 function OrderCard({
   order,
   column,
-  onMove,
-  onComplete,
 }: {
-  order: BaristaOrder;
+  order: Order;
   column: BoardColumn;
-  onMove: (orderId: string, status: OrderStatus) => void;
-  onComplete: (orderId: string) => void;
 }) {
-  function handleAction() {
-    if (column.button.completesOrder) {
-      onComplete(order.id);
-      return;
-    }
-
-    if (column.button.nextStatus) {
-      onMove(order.id, column.button.nextStatus);
-    }
-  }
-
   return (
     <article className="rounded-[28px] bg-white p-5 shadow-[0_18px_40px_rgba(26,26,26,0.08)]">
       <div className="flex items-start justify-between gap-4">
@@ -327,10 +214,12 @@ function OrderCard({
         <ul className="mt-3 flex flex-col gap-2">
           {order.items.map((item) => (
             <li
-              key={`${order.id}-${item.name}`}
+              key={`${order.id}-${item.id}`}
               className="flex items-start justify-between gap-4 text-base"
             >
-              <span className="font-semibold leading-snug">{item.name}</span>
+              <span className="font-semibold leading-snug">
+                {item.name} {item.volume}
+              </span>
               <span className="shrink-0 rounded-full bg-[#F7F7F7] px-3 py-1 font-bold">
                 x{item.quantity}
               </span>
@@ -350,7 +239,7 @@ function OrderCard({
 
       <button
         type="button"
-        onClick={handleAction}
+        onClick={() => updateOrderStatus(order.id, column.button.nextStatus)}
         className={`mt-5 min-h-14 w-full rounded-[22px] px-5 text-lg font-bold transition active:scale-[0.98] ${column.button.className}`}
       >
         {column.button.label}
