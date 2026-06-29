@@ -8,6 +8,7 @@ export type OrderItem = {
   id: string;
   name: string;
   volume: string;
+  baristaType?: "drink" | "food";
   quantity: number;
 };
 
@@ -41,8 +42,20 @@ const initialOrders: Order[] = [
     phone: "+7 (914) 234-56-78",
     createdAt: "09:42",
     items: [
-      { id: "cappuccino", name: "Капучино", volume: "300 мл", quantity: 2 },
-      { id: "croissant", name: "Круассан", volume: "90 г", quantity: 1 },
+      {
+        id: "cappuccino",
+        name: "Капучино",
+        volume: "300 мл",
+        baristaType: "drink",
+        quantity: 2,
+      },
+      {
+        id: "croissant",
+        name: "Круассан",
+        volume: "90 г",
+        baristaType: "food",
+        quantity: 1,
+      },
     ],
     comment: "Один капучино без сахара",
     status: "new",
@@ -54,8 +67,20 @@ const initialOrders: Order[] = [
     phone: "+7 (924) 112-45-90",
     createdAt: "09:48",
     items: [
-      { id: "latte", name: "Латте", volume: "350 мл", quantity: 1 },
-      { id: "cheesecake", name: "Чизкейк", volume: "120 г", quantity: 1 },
+      {
+        id: "latte",
+        name: "Латте",
+        volume: "350 мл",
+        baristaType: "drink",
+        quantity: 1,
+      },
+      {
+        id: "cheesecake",
+        name: "Чизкейк",
+        volume: "120 г",
+        baristaType: "food",
+        quantity: 1,
+      },
     ],
     status: "in_progress",
   },
@@ -66,8 +91,20 @@ const initialOrders: Order[] = [
     phone: "+7 (914) 987-65-43",
     createdAt: "09:55",
     items: [
-      { id: "raf", name: "Раф", volume: "300 мл", quantity: 1 },
-      { id: "americano", name: "Американо", volume: "250 мл", quantity: 1 },
+      {
+        id: "raf",
+        name: "Раф",
+        volume: "300 мл",
+        baristaType: "drink",
+        quantity: 1,
+      },
+      {
+        id: "americano",
+        name: "Американо",
+        volume: "250 мл",
+        baristaType: "drink",
+        quantity: 1,
+      },
     ],
     comment: "Раф погорячее",
     status: "new",
@@ -79,8 +116,20 @@ const initialOrders: Order[] = [
     phone: "+7 (902) 555-31-20",
     createdAt: "10:01",
     items: [
-      { id: "flat-white", name: "Флэт уайт", volume: "250 мл", quantity: 2 },
-      { id: "cocoa", name: "Какао", volume: "300 мл", quantity: 1 },
+      {
+        id: "flat-white",
+        name: "Флэт уайт",
+        volume: "250 мл",
+        baristaType: "drink",
+        quantity: 2,
+      },
+      {
+        id: "cocoa",
+        name: "Какао",
+        volume: "300 мл",
+        baristaType: "drink",
+        quantity: 1,
+      },
     ],
     status: "ready",
   },

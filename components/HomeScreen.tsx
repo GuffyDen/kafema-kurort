@@ -15,30 +15,43 @@ import type { Product } from "@/components/ProductCard";
 import { RepeatOrderCard } from "@/components/RepeatOrderCard";
 import { SearchBar } from "@/components/SearchBar";
 import { SectionTitle } from "@/components/SectionTitle";
+import { useMenu } from "@/lib/menuStore";
 import { createOrder, useOrder } from "@/lib/orderStore";
 
-type Category = {
-  name: string;
-  icon: string;
-  active?: boolean;
-};
-
 type HomeScreenProps = {
-  categories: Category[];
-  products: Product[];
   hasRepeatOrder: boolean;
 };
 
-export function HomeScreen({
-  categories,
-  products,
-  hasRepeatOrder,
-}: HomeScreenProps) {
+export function HomeScreen({ hasRepeatOrder }: HomeScreenProps) {
+  const menu = useMenu();
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [activeOrderId, setActiveOrderId] = useState<string | null>(null);
   const activeOrder = useOrder(activeOrderId);
+  const categories = useMemo(() => {
+    const activeCategories = menu.categories.filter(
+      (category) => category.isActive,
+    );
+
+    return activeCategories.map((category, index) => ({
+      name: category.name,
+      icon: category.icon,
+      active: index === 0,
+    }));
+  }, [menu.categories]);
+
+  const products = useMemo(
+    () =>
+      menu.products.filter((product) => {
+        const category = menu.categories.find(
+          (currentCategory) => currentCategory.id === product.categoryId,
+        );
+
+        return product.isActive && category?.isActive;
+      }),
+    [menu.categories, menu.products],
+  );
 
   useEffect(() => {
     const savedOrderId = localStorage.getItem("kafema-active-order-id");
@@ -63,6 +76,10 @@ export function HomeScreen({
   );
 
   function addToCart(product: Product) {
+    if (!product.inStock) {
+      return;
+    }
+
     setCartItems((items) => {
       const existingItem = items.find((item) => item.product.id === product.id);
 
@@ -122,6 +139,7 @@ export function HomeScreen({
         id: item.product.id,
         name: item.product.name,
         volume: item.product.volume,
+        baristaType: item.product.baristaType,
         quantity: item.quantity,
       })),
     });
@@ -187,13 +205,19 @@ export function HomeScreen({
             />
 
             <div className="mt-5 grid grid-cols-2 gap-4">
-              {products.map((product) => (
-                <ProductCard
-                  key={product.id}
-                  product={product}
-                  onAdd={addToCart}
-                />
-              ))}
+              {products.length > 0 ? (
+                products.map((product) => (
+                  <ProductCard
+                    key={product.id}
+                    product={product}
+                    onAdd={addToCart}
+                  />
+                ))
+              ) : (
+                <div className="col-span-2">
+                  <EmptyState text="Пока в меню нет доступных товаров." />
+                </div>
+              )}
             </div>
           </section>
         </div>

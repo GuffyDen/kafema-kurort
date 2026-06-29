@@ -424,6 +424,10 @@ function groupOrderItems(items: OrderItem[]) {
 }
 
 function isDrink(item: OrderItem) {
+  if (item.baristaType) {
+    return item.baristaType === "drink";
+  }
+
   const itemName = item.name.toLowerCase();
 
   return (

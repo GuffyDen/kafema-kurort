@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import type { Product } from "@/components/ProductCard";
 
 export type CartItem = {
@@ -52,12 +51,10 @@ export function CartModal({
               className="flex gap-4 rounded-[24px] border border-[#EFEFEF] bg-[#FFFFFF] p-3 shadow-[0_12px_28px_rgba(119,119,119,0.12)]"
             >
               <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-[20px] bg-[#F7F7F7]">
-                <Image
-                  src={item.product.image}
+                <img
+                  src={item.product.imageSrc}
                   alt={item.product.name}
-                  fill
-                  sizes="80px"
-                  className="object-cover"
+                  className="h-full w-full object-cover"
                 />
               </div>
 
