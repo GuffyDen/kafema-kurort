@@ -1,10 +1,15 @@
 "use client";
 
 import type { Product } from "@/components/ProductCard";
-import { getMenuItemPrice, getMenuItemSummary } from "@/lib/menuStore";
+import type { MenuSelection } from "@/lib/menuStore";
 
 export type CartItem = {
+  id: string;
   product: Product;
+  selection: MenuSelection;
+  summary: string;
+  modifiers: string[];
+  unitPrice: number;
   quantity: number;
 };
 
@@ -12,8 +17,8 @@ type CartModalProps = {
   items: CartItem[];
   total: number;
   onClose: () => void;
-  onIncrease: (productId: string) => void;
-  onDecrease: (productId: string) => void;
+  onIncrease: (cartItemId: string) => void;
+  onDecrease: (cartItemId: string) => void;
   onCheckout: () => void;
 };
 
@@ -48,7 +53,7 @@ export function CartModal({
         <div className="flex-1 space-y-4 overflow-y-auto px-5 py-5">
           {items.map((item) => (
             <article
-              key={item.product.id}
+              key={item.id}
               className="flex gap-4 rounded-[24px] border border-[#EFEFEF] bg-[#FFFFFF] p-3 shadow-[0_12px_28px_rgba(119,119,119,0.12)]"
             >
               <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-[20px] bg-[#F7F7F7]">
@@ -64,12 +69,21 @@ export function CartModal({
                   {item.product.name}
                 </h3>
                 <p className="mt-1 text-sm text-[#777777]">
-                  {getMenuItemSummary(item.product)}
+                  {item.summary}
                 </p>
+                {item.modifiers.length > 0 ? (
+                  <ul className="mt-2 space-y-1">
+                    {item.modifiers.map((modifier, modifierIndex) => (
+                      <li className="text-xs font-medium text-[#777777]" key={`${modifier}-${modifierIndex}`}>
+                        • {modifier}
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
                 <div className="mt-4 flex items-center justify-between gap-3">
                   <p className="text-base font-bold text-[#1A1A1A]">
                     {(
-                      getMenuItemPrice(item.product) * item.quantity
+                      item.unitPrice * item.quantity
                     ).toLocaleString(
                       "ru-RU",
                     )}{" "}
@@ -79,7 +93,7 @@ export function CartModal({
                     <button
                       type="button"
                       className="flex h-8 w-8 items-center justify-center rounded-full bg-[#FFFFFF] text-xl leading-none text-[#1A1A1A] shadow-sm transition duration-300 active:scale-95"
-                      onClick={() => onDecrease(item.product.id)}
+                      onClick={() => onDecrease(item.id)}
                       aria-label={`Уменьшить количество ${item.product.name}`}
                     >
                       −
@@ -90,7 +104,7 @@ export function CartModal({
                     <button
                       type="button"
                       className="flex h-8 w-8 items-center justify-center rounded-full bg-[#E30613] text-xl leading-none text-white shadow-sm transition duration-300 active:scale-95"
-                      onClick={() => onIncrease(item.product.id)}
+                      onClick={() => onIncrease(item.id)}
                       aria-label={`Увеличить количество ${item.product.name}`}
                     >
                       +

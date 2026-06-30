@@ -572,30 +572,46 @@ function OrderItemsGroup({
         <p className="text-xs font-bold text-[#777777]">{label}</p>
       </div>
       <ul className={compact ? "mt-1.5 space-y-1.5" : "mt-2 space-y-2"}>
-        {items.map((item) => (
+        {items.map((item, index) => (
           <li
-            key={`${item.id}-${item.name}`}
-            className={`flex items-center justify-between gap-3 ${
+            key={`${item.id}-${item.name}-${index}`}
+            className={`${
               plain ? "px-0 py-0.5 text-xs" : "px-0 py-1.5 text-base"
             }`}
           >
-            <span className="flex min-w-0 items-center gap-2">
-              <span className="size-1.5 shrink-0 rounded-full bg-[#E30613]" />
+            <div className="flex items-start justify-between gap-3">
+              <span className="flex min-w-0 items-center gap-2">
+                <span className="mt-2 size-1.5 shrink-0 rounded-full bg-[#E30613]" />
+                <span className="min-w-0">
+                  <span
+                    className={`block truncate leading-snug ${
+                      plain ? "font-semibold" : "font-bold"
+                    }`}
+                  >
+                    {item.name} {item.volume}
+                  </span>
+                  {item.modifiers?.length ? (
+                    <span className="mt-1 block space-y-0.5">
+                      {item.modifiers.map((modifier, modifierIndex) => (
+                        <span
+                          className="block truncate text-xs font-semibold text-[#777777]"
+                          key={`${modifier}-${modifierIndex}`}
+                        >
+                          • {modifier}
+                        </span>
+                      ))}
+                    </span>
+                  ) : null}
+                </span>
+              </span>
               <span
-                className={`truncate leading-snug ${
-                  plain ? "font-semibold" : "font-bold"
+                className={`shrink-0 rounded-full px-2.5 text-xs font-bold text-[#1A1A1A] ${
+                  plain ? "bg-[#F7F7F7] py-0.5" : "bg-white py-1"
                 }`}
               >
-                {item.name} {item.volume}
+                ×{item.quantity}
               </span>
-            </span>
-            <span
-              className={`shrink-0 rounded-full px-2.5 text-xs font-bold text-[#1A1A1A] ${
-                plain ? "bg-[#F7F7F7] py-0.5" : "bg-white py-1"
-              }`}
-            >
-              ×{item.quantity}
-            </span>
+            </div>
           </li>
         ))}
       </ul>

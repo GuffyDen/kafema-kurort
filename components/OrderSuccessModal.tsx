@@ -68,9 +68,9 @@ export function OrderSuccessModal({
             </div>
 
             <div className="mt-4 space-y-3">
-              {order.items.map((item) => (
+              {order.items.map((item, index) => (
                 <div
-                  key={`${order.id}-${item.id}`}
+                  key={`${order.id}-${item.id}-${index}`}
                   className="flex items-start justify-between gap-4"
                 >
                   <div>
@@ -80,6 +80,18 @@ export function OrderSuccessModal({
                     <p className="mt-1 text-sm text-[#777777]">
                       {item.volume}
                     </p>
+                    {item.modifiers?.length ? (
+                      <ul className="mt-2 space-y-1">
+                        {item.modifiers.map((modifier, modifierIndex) => (
+                          <li
+                            className="text-xs font-medium text-[#777777]"
+                            key={`${modifier}-${modifierIndex}`}
+                          >
+                            • {modifier}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
                   </div>
                   <p className="shrink-0 rounded-full bg-[#F7F7F7] px-3 py-1 font-bold text-[#1A1A1A]">
                     x{item.quantity}

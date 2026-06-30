@@ -56,6 +56,23 @@ export type AddonGroup = {
   options: AddonOption[];
 };
 
+export type MenuSelection = {
+  variantId?: string;
+  addonOptionIdsByGroupId: Record<string, string[]>;
+};
+
+export type ConfiguredMenuItem = {
+  item: MenuItem;
+  variant?: MenuItemVariant;
+  addonGroups: Array<{
+    group: AddonGroup;
+    options: AddonOption[];
+  }>;
+  unitPrice: number;
+  summary: string;
+  baristaLines: string[];
+};
+
 export type MenuItem = {
   id: string;
   name: string;
@@ -491,6 +508,88 @@ export function getMenuItemSummary(item: MenuItem) {
 
 export function getMenuItemWorkstationType(item: MenuItem) {
   return item.workingZoneId === "bar" || item.workingZoneId === "cold" ? "drink" : "food";
+}
+
+export function getAvailableVariants(item: MenuItem) {
+  return [...item.variants].filter((variant) => variant.isActive).sort((a, b) => a.sortOrder - b.sortOrder);
+}
+
+export function getMenuItemAddonGroups(menu: MenuState, item: MenuItem) {
+  return item.addonGroupIds
+    .map((groupId) => menu.addonGroups.find((group) => group.id === groupId && group.isActive))
+    .filter((group): group is AddonGroup => Boolean(group))
+    .map((group) => ({
+      ...group,
+      options: [...group.options].filter((option) => option.isActive).sort((a, b) => a.sortOrder - b.sortOrder),
+    }))
+    .filter((group) => group.options.length > 0)
+    .sort((a, b) => a.sortOrder - b.sortOrder);
+}
+
+export function isMenuItemOrderable(menu: MenuState, item: MenuItem) {
+  if (!item.isActive || !item.inStock) return false;
+  const category = menu.categories.find((currentCategory) => currentCategory.id === item.categoryId);
+  if (!category?.isActive) return false;
+  if (item.variants.length > 0 && getAvailableVariants(item).length === 0) return false;
+
+  return item.addonGroupIds.every((groupId) => {
+    const group = menu.addonGroups.find((currentGroup) => currentGroup.id === groupId && currentGroup.isActive);
+    if (!group?.required) return true;
+    return group.options.some((option) => option.isActive);
+  });
+}
+
+export function getDefaultMenuSelection(menu: MenuState, item: MenuItem): MenuSelection {
+  const firstVariant = getAvailableVariants(item)[0];
+  const addonOptionIdsByGroupId = getMenuItemAddonGroups(menu, item).reduce<Record<string, string[]>>((acc, group) => {
+    if (group.required && group.selectionType === "single") {
+      acc[group.id] = group.options[0] ? [group.options[0].id] : [];
+    } else {
+      acc[group.id] = [];
+    }
+
+    return acc;
+  }, {});
+
+  return {
+    variantId: firstVariant?.id,
+    addonOptionIdsByGroupId,
+  };
+}
+
+export function configureMenuItem(menu: MenuState, item: MenuItem, selection: MenuSelection): ConfiguredMenuItem {
+  const variant = getAvailableVariants(item).find((currentVariant) => currentVariant.id === selection.variantId);
+  const addonGroups = getMenuItemAddonGroups(menu, item).map((group) => {
+    const selectedIds = new Set(selection.addonOptionIdsByGroupId[group.id] ?? []);
+    return {
+      group,
+      options: group.options.filter((option) => selectedIds.has(option.id)),
+    };
+  });
+  const addonTotal = addonGroups.reduce(
+    (sum, group) => sum + group.options.reduce((groupSum, option) => groupSum + option.priceDelta, 0),
+    0,
+  );
+  const unitPrice = item.basePrice + (variant?.priceDelta ?? 0) + addonTotal;
+  const baristaLines = addonGroups.flatMap(({ options }) => options.map((option) => option.name));
+
+  return {
+    item,
+    variant,
+    addonGroups,
+    unitPrice,
+    summary: variant?.name || item.description,
+    baristaLines,
+  };
+}
+
+export function isMenuSelectionComplete(menu: MenuState, item: MenuItem, selection: MenuSelection) {
+  if (item.variants.length > 0 && !selection.variantId) return false;
+
+  return getMenuItemAddonGroups(menu, item).every((group) => {
+    if (!group.required) return true;
+    return (selection.addonOptionIdsByGroupId[group.id] ?? []).length > 0;
+  });
 }
 
 export function addCategory(input: CategoryInput) {

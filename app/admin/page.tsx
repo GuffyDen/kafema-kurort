@@ -1,5 +1,5 @@
-import { AdminPanel } from "@/components/admin/AdminPanel";
+import { ManagePanel } from "@/components/manage/ManagePanel";
 
 export default function AdminPage() {
-  return <AdminPanel />;
+  return <ManagePanel />;
 }

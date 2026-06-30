@@ -8,6 +8,7 @@ export type OrderItem = {
   id: string;
   name: string;
   volume: string;
+  modifiers?: string[];
   baristaType?: "drink" | "food";
   quantity: number;
 };

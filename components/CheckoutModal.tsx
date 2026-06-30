@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import type { ChangeEvent, FormEvent } from "react";
 import type { CartItem } from "@/components/CartModal";
-import { getMenuItemPrice, getMenuItemSummary } from "@/lib/menuStore";
 
 type CheckoutModalProps = {
   items: CartItem[];
@@ -142,7 +141,7 @@ export function CheckoutModal({
             <div className="mt-4 space-y-3">
               {items.map((item) => (
                 <div
-                  key={item.product.id}
+                  key={item.id}
                   className="flex items-start justify-between gap-4"
                 >
                   <div>
@@ -150,12 +149,21 @@ export function CheckoutModal({
                       {item.product.name}
                     </p>
                     <p className="mt-1 text-sm text-[#777777]">
-                      {item.quantity} × {getMenuItemSummary(item.product)}
+                      {item.quantity} × {item.summary}
                     </p>
+                    {item.modifiers.length > 0 ? (
+                      <ul className="mt-2 space-y-1">
+                        {item.modifiers.map((modifier, modifierIndex) => (
+                          <li className="text-xs font-medium text-[#777777]" key={`${modifier}-${modifierIndex}`}>
+                            • {modifier}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
                   </div>
                   <p className="shrink-0 font-bold text-[#1A1A1A]">
                     {(
-                      getMenuItemPrice(item.product) * item.quantity
+                      item.unitPrice * item.quantity
                     ).toLocaleString(
                       "ru-RU",
                     )}{" "}

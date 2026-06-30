@@ -10,16 +10,18 @@ import { CheckoutModal } from "@/components/CheckoutModal";
 import { EmptyState } from "@/components/EmptyState";
 import { Header } from "@/components/Header";
 import { OrderSuccessModal } from "@/components/OrderSuccessModal";
+import { ProductConfigurator } from "@/components/ProductConfigurator";
 import { ProductCard } from "@/components/ProductCard";
 import type { Product } from "@/components/ProductCard";
 import { RepeatOrderCard } from "@/components/RepeatOrderCard";
 import { SearchBar } from "@/components/SearchBar";
 import { SectionTitle } from "@/components/SectionTitle";
 import {
-  getMenuItemPrice,
-  getMenuItemSummary,
   getMenuItemWorkstationType,
+  isMenuItemOrderable,
   useMenu,
+  type ConfiguredMenuItem,
+  type MenuSelection,
 } from "@/lib/menuStore";
 import { createOrder, useOrder } from "@/lib/orderStore";
 
@@ -32,6 +34,7 @@ export function HomeScreen({ hasRepeatOrder }: HomeScreenProps) {
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [activeOrderId, setActiveOrderId] = useState<string | null>(null);
   const activeOrder = useOrder(activeOrderId);
   const categories = useMemo(() => {
@@ -48,14 +51,8 @@ export function HomeScreen({ hasRepeatOrder }: HomeScreenProps) {
 
   const products = useMemo(
     () =>
-      menu.menuItems.filter((product) => {
-        const category = menu.categories.find(
-          (currentCategory) => currentCategory.id === product.categoryId,
-        );
-
-        return product.isActive && product.inStock && category?.isActive;
-      }),
-    [menu.categories, menu.menuItems],
+      menu.menuItems.filter((product) => isMenuItemOrderable(menu, product)),
+    [menu],
   );
 
   useEffect(() => {
@@ -74,47 +71,59 @@ export function HomeScreen({ hasRepeatOrder }: HomeScreenProps) {
   const cartTotal = useMemo(
     () =>
       cartItems.reduce(
-        (sum, item) => sum + getMenuItemPrice(item.product) * item.quantity,
+        (sum, item) => sum + item.unitPrice * item.quantity,
         0,
       ),
     [cartItems],
   );
 
-  function addToCart(product: Product) {
-    if (!product.inStock) {
-      return;
-    }
-
+  function addConfiguredItem(
+    configuredItem: ConfiguredMenuItem,
+    selection: MenuSelection,
+  ) {
+    const cartItemId = createCartItemId(configuredItem.item.id, selection);
     setCartItems((items) => {
-      const existingItem = items.find((item) => item.product.id === product.id);
+      const existingItem = items.find((item) => item.id === cartItemId);
 
       if (existingItem) {
         return items.map((item) =>
-          item.product.id === product.id
+          item.id === cartItemId
             ? { ...item, quantity: item.quantity + 1 }
             : item,
         );
       }
 
-      return [...items, { product, quantity: 1 }];
+      return [
+        ...items,
+        {
+          id: cartItemId,
+          product: configuredItem.item,
+          selection,
+          summary: configuredItem.summary,
+          modifiers: configuredItem.baristaLines,
+          unitPrice: configuredItem.unitPrice,
+          quantity: 1,
+        },
+      ];
     });
+    setSelectedProduct(null);
   }
 
-  function increaseQuantity(productId: string) {
+  function increaseQuantity(cartItemId: string) {
     setCartItems((items) =>
       items.map((item) =>
-        item.product.id === productId
+        item.id === cartItemId
           ? { ...item, quantity: item.quantity + 1 }
           : item,
       ),
     );
   }
 
-  function decreaseQuantity(productId: string) {
+  function decreaseQuantity(cartItemId: string) {
     setCartItems((items) =>
       items
         .map((item) =>
-          item.product.id === productId
+          item.id === cartItemId
             ? { ...item, quantity: item.quantity - 1 }
             : item,
         )
@@ -143,7 +152,8 @@ export function HomeScreen({ hasRepeatOrder }: HomeScreenProps) {
       items: cartItems.map((item) => ({
         id: item.product.id,
         name: item.product.name,
-        volume: getMenuItemSummary(item.product),
+        volume: item.summary,
+        modifiers: item.modifiers,
         baristaType: getMenuItemWorkstationType(item.product),
         quantity: item.quantity,
       })),
@@ -215,7 +225,7 @@ export function HomeScreen({ hasRepeatOrder }: HomeScreenProps) {
                   <ProductCard
                     key={product.id}
                     product={product}
-                    onAdd={addToCart}
+                    onAdd={setSelectedProduct}
                   />
                 ))
               ) : (
@@ -259,6 +269,15 @@ export function HomeScreen({ hasRepeatOrder }: HomeScreenProps) {
         />
       ) : null}
 
+      {selectedProduct ? (
+        <ProductConfigurator
+          product={selectedProduct}
+          menu={menu}
+          onClose={() => setSelectedProduct(null)}
+          onAdd={addConfiguredItem}
+        />
+      ) : null}
+
       {activeOrder ? (
         <OrderSuccessModal
           order={activeOrder}
@@ -267,4 +286,16 @@ export function HomeScreen({ hasRepeatOrder }: HomeScreenProps) {
       ) : null}
     </>
   );
+}
+
+function createCartItemId(productId: string, selection: MenuSelection) {
+  const addonPairs = Object.entries(selection.addonOptionIdsByGroupId)
+    .map(([groupId, optionIds]) => [groupId, [...optionIds].sort()] as const)
+    .sort(([firstGroupId], [secondGroupId]) => firstGroupId.localeCompare(secondGroupId));
+
+  return JSON.stringify({
+    productId,
+    variantId: selection.variantId ?? "",
+    addonPairs,
+  });
 }
