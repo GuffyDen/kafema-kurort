@@ -1,8 +1,12 @@
 "use client";
 
-import type { MenuProduct } from "@/lib/menuStore";
+import {
+  getMenuItemPrice,
+  getMenuItemSummary,
+  type MenuItem,
+} from "@/lib/menuStore";
 
-export type Product = MenuProduct;
+export type Product = MenuItem;
 
 type ProductCardProps = {
   product: Product;
@@ -11,6 +15,8 @@ type ProductCardProps = {
 
 export function ProductCard({ product, onAdd }: ProductCardProps) {
   const canAdd = product.inStock;
+  const price = getMenuItemPrice(product);
+  const summary = getMenuItemSummary(product);
 
   return (
     <article
@@ -37,11 +43,11 @@ export function ProductCard({ product, onAdd }: ProductCardProps) {
         <h3 className="truncate text-base font-semibold text-[#1A1A1A]">
           {product.name}
         </h3>
-        <p className="mt-1 text-sm text-[#777777]">{product.volume}</p>
+        <p className="mt-1 truncate text-sm text-[#777777]">{summary}</p>
 
         <div className="mt-4 flex items-center justify-between">
           <p className="text-lg font-bold text-[#1A1A1A]">
-            {product.price.toLocaleString("ru-RU")} ₽
+            {price.toLocaleString("ru-RU")} ₽
           </p>
           <button
             type="button"

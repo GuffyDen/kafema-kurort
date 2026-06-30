@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import type { ChangeEvent, FormEvent } from "react";
 import type { CartItem } from "@/components/CartModal";
+import { getMenuItemPrice, getMenuItemSummary } from "@/lib/menuStore";
 
 type CheckoutModalProps = {
   items: CartItem[];
@@ -149,11 +150,13 @@ export function CheckoutModal({
                       {item.product.name}
                     </p>
                     <p className="mt-1 text-sm text-[#777777]">
-                      {item.quantity} × {item.product.volume}
+                      {item.quantity} × {getMenuItemSummary(item.product)}
                     </p>
                   </div>
                   <p className="shrink-0 font-bold text-[#1A1A1A]">
-                    {(item.product.price * item.quantity).toLocaleString(
+                    {(
+                      getMenuItemPrice(item.product) * item.quantity
+                    ).toLocaleString(
                       "ru-RU",
                     )}{" "}
                     ₽

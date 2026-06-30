@@ -1,6 +1,7 @@
 "use client";
 
 import type { Product } from "@/components/ProductCard";
+import { getMenuItemPrice, getMenuItemSummary } from "@/lib/menuStore";
 
 export type CartItem = {
   product: Product;
@@ -63,11 +64,13 @@ export function CartModal({
                   {item.product.name}
                 </h3>
                 <p className="mt-1 text-sm text-[#777777]">
-                  {item.product.volume}
+                  {getMenuItemSummary(item.product)}
                 </p>
                 <div className="mt-4 flex items-center justify-between gap-3">
                   <p className="text-base font-bold text-[#1A1A1A]">
-                    {(item.product.price * item.quantity).toLocaleString(
+                    {(
+                      getMenuItemPrice(item.product) * item.quantity
+                    ).toLocaleString(
                       "ru-RU",
                     )}{" "}
                     ₽

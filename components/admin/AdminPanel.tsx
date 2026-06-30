@@ -8,8 +8,15 @@ import {
   type OrderItem,
   type OrderStatus,
 } from "@/lib/orderStore";
+import {
+  updateAddonOption,
+  updateMenuItem,
+  useMenu,
+  type MenuState,
+} from "@/lib/menuStore";
 
 type BoardStatus = Exclude<OrderStatus, "completed">;
+type AdminTab = "orders" | "stop-list";
 
 type BoardColumn = {
   status: BoardStatus;
@@ -71,7 +78,9 @@ const drinkIds = new Set([
 
 export function AdminPanel() {
   const orders = useOrders();
+  const menu = useMenu();
   const [now, setNow] = useState(() => Date.now());
+  const [activeTab, setActiveTab] = useState<AdminTab>("orders");
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -105,34 +114,75 @@ export function AdminPanel() {
             <p className="text-3xl font-bold leading-none text-[#E30613]">
               ☕ Кафема Курорт
             </p>
-            <h1 className="mt-1 text-2xl font-bold leading-tight">Заказы</h1>
+            <div className="mt-3 flex rounded-[22px] bg-white p-1 shadow-[0_14px_34px_rgba(26,26,26,0.06)]">
+              <TabButton
+                active={activeTab === "orders"}
+                onClick={() => setActiveTab("orders")}
+              >
+                ☕ Заказы
+              </TabButton>
+              <TabButton
+                active={activeTab === "stop-list"}
+                onClick={() => setActiveTab("stop-list")}
+              >
+                🚫 Стоп-лист
+              </TabButton>
+            </div>
           </div>
 
-          <div className="flex items-center gap-2 rounded-[24px] bg-white px-3 py-2 shadow-[0_14px_34px_rgba(26,26,26,0.06)]">
-            <Counter label="Новые" value={stats.new} dot="bg-[#E30613]" />
-            <Counter
-              label="В работе"
-              value={stats.in_progress}
-              dot="bg-[#F5BD1F]"
-            />
-            <Counter label="Готовы" value={stats.ready} dot="bg-emerald-500" />
-          </div>
+          {activeTab === "orders" ? (
+            <div className="flex items-center gap-2 rounded-[24px] bg-white px-3 py-2 shadow-[0_14px_34px_rgba(26,26,26,0.06)]">
+              <Counter label="Новые" value={stats.new} dot="bg-[#E30613]" />
+              <Counter
+                label="В работе"
+                value={stats.in_progress}
+                dot="bg-[#F5BD1F]"
+              />
+              <Counter label="Готовы" value={stats.ready} dot="bg-emerald-500" />
+            </div>
+          ) : null}
         </header>
 
-        <section className="grid min-h-0 flex-1 grid-cols-3 gap-5">
-          {boardColumns.map((column) => (
-            <OrderColumn
-              key={column.status}
-              column={column}
-              now={now}
-              orders={visibleOrders.filter(
-                (order) => order.status === column.status,
-              )}
-            />
-          ))}
-        </section>
+        {activeTab === "orders" ? (
+          <section className="grid min-h-0 flex-1 grid-cols-3 gap-5">
+            {boardColumns.map((column) => (
+              <OrderColumn
+                key={column.status}
+                column={column}
+                now={now}
+                orders={visibleOrders.filter(
+                  (order) => order.status === column.status,
+                )}
+              />
+            ))}
+          </section>
+        ) : (
+          <StopListPanel menu={menu} />
+        )}
       </div>
     </main>
+  );
+}
+
+function TabButton({
+  active,
+  children,
+  onClick,
+}: {
+  active: boolean;
+  children: React.ReactNode;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className={`rounded-[18px] px-5 py-3 text-base font-bold ${
+        active ? "bg-[#E30613] text-white" : "text-[#777777]"
+      }`}
+      onClick={onClick}
+    >
+      {children}
+    </button>
   );
 }
 
@@ -151,6 +201,151 @@ function Counter({
       <span className="text-sm font-bold">
         {label} — {value}
       </span>
+    </div>
+  );
+}
+
+function StopListPanel({ menu }: { menu: MenuState }) {
+  const [query, setQuery] = useState("");
+  const normalizedQuery = normalizeSearch(query);
+  const products = [...menu.menuItems]
+    .filter((item) => item.isActive)
+    .filter((item) =>
+      matchesSearch([item.name, item.description], normalizedQuery),
+    )
+    .sort((a, b) => a.sortOrder - b.sortOrder);
+  const addonOptions = [...menu.addonGroups]
+    .filter((group) => group.isActive)
+    .sort((a, b) => a.sortOrder - b.sortOrder)
+    .flatMap((group) =>
+      [...group.options]
+        .sort((a, b) => a.sortOrder - b.sortOrder)
+        .filter((option) =>
+          matchesSearch([group.name, option.name], normalizedQuery),
+        )
+        .map((option) => ({ group, option })),
+    );
+
+  return (
+    <section className="min-h-0 flex-1 overflow-y-auto rounded-[30px] bg-white p-5 shadow-[0_18px_42px_rgba(26,26,26,0.05)]">
+      <label className="block">
+        <span className="sr-only">Поиск товара или дополнения</span>
+        <input
+          className="h-16 w-full rounded-[24px] border border-[#EFEFEF] bg-[#F7F7F7] px-5 text-2xl font-bold outline-none focus:border-[#E30613]"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="🔍 Поиск товара или дополнения..."
+        />
+      </label>
+
+      <div className="mt-5 grid gap-5 lg:grid-cols-2">
+        <StopListSection title="Товары" emptyText="Товары не найдены">
+          {products.map((item) => (
+            <StopListRow
+              key={item.id}
+              icon={getMenuItemIcon(menu, item.categoryId)}
+              title={item.name}
+              subtitle={item.description}
+              active={item.inStock}
+              activeText="🟢 В наличии"
+              inactiveText="🔴 Нет в наличии"
+              onClick={() => updateMenuItem(item.id, { inStock: !item.inStock })}
+            />
+          ))}
+          {products.length === 0 ? (
+            <EmptyStopListText text="Товары не найдены" />
+          ) : null}
+        </StopListSection>
+
+        <StopListSection title="Дополнения" emptyText="Дополнения не найдены">
+          {addonOptions.map(({ group, option }) => (
+            <StopListRow
+              key={`${group.id}-${option.id}`}
+              icon={group.icon}
+              title={option.name}
+              subtitle={group.name}
+              active={option.isActive}
+              activeText="🟢 Доступно"
+              inactiveText="🔴 Нет в наличии"
+              onClick={() =>
+                updateAddonOption(group.id, option.id, {
+                  isActive: !option.isActive,
+                })
+              }
+            />
+          ))}
+          {addonOptions.length === 0 ? (
+            <EmptyStopListText text="Дополнения не найдены" />
+          ) : null}
+        </StopListSection>
+      </div>
+    </section>
+  );
+}
+
+function StopListSection({
+  title,
+  children,
+}: {
+  title: string;
+  emptyText: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <article>
+      <h2 className="text-xl font-bold">{title}</h2>
+      <div className="mt-3 space-y-2">{children}</div>
+    </article>
+  );
+}
+
+function StopListRow({
+  icon,
+  title,
+  subtitle,
+  active,
+  activeText,
+  inactiveText,
+  onClick,
+}: {
+  icon: string;
+  title: string;
+  subtitle: string;
+  active: boolean;
+  activeText: string;
+  inactiveText: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="flex min-h-20 w-full items-center justify-between gap-4 rounded-[22px] border border-[#EFEFEF] bg-white px-4 py-3 text-left shadow-[0_10px_24px_rgba(26,26,26,0.04)]"
+      onClick={onClick}
+    >
+      <span className="flex min-w-0 items-center gap-3">
+        <span className="text-2xl">{icon}</span>
+        <span className="min-w-0">
+          <span className="block truncate text-lg font-bold">{title}</span>
+          <span className="block truncate text-sm font-semibold text-[#777777]">
+            {subtitle}
+          </span>
+        </span>
+      </span>
+      <span
+        className={`shrink-0 rounded-full px-3 py-2 text-sm font-bold ${
+          active ? "bg-emerald-50 text-emerald-700" : "bg-[#E30613]/10 text-[#E30613]"
+        }`}
+      >
+        {active ? activeText : inactiveText}
+      </span>
+    </button>
+  );
+}
+
+function EmptyStopListText({ text }: { text: string }) {
+  return (
+    <div className="rounded-[22px] border border-dashed border-[#E8E8E8] bg-[#F7F7F7] px-4 py-8 text-center text-sm font-semibold text-[#777777]">
+      {text}
     </div>
   );
 }
@@ -490,4 +685,17 @@ function formatElapsed(totalSeconds: number) {
   }
 
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+function getMenuItemIcon(menu: MenuState, categoryId: string) {
+  return menu.categories.find((category) => category.id === categoryId)?.icon ?? "•";
+}
+
+function matchesSearch(values: string[], query: string) {
+  if (!query) return true;
+  return values.some((value) => normalizeSearch(value).includes(query));
+}
+
+function normalizeSearch(value: string) {
+  return value.trim().toLowerCase();
 }

@@ -15,7 +15,12 @@ import type { Product } from "@/components/ProductCard";
 import { RepeatOrderCard } from "@/components/RepeatOrderCard";
 import { SearchBar } from "@/components/SearchBar";
 import { SectionTitle } from "@/components/SectionTitle";
-import { useMenu } from "@/lib/menuStore";
+import {
+  getMenuItemPrice,
+  getMenuItemSummary,
+  getMenuItemWorkstationType,
+  useMenu,
+} from "@/lib/menuStore";
 import { createOrder, useOrder } from "@/lib/orderStore";
 
 type HomeScreenProps = {
@@ -43,14 +48,14 @@ export function HomeScreen({ hasRepeatOrder }: HomeScreenProps) {
 
   const products = useMemo(
     () =>
-      menu.products.filter((product) => {
+      menu.menuItems.filter((product) => {
         const category = menu.categories.find(
           (currentCategory) => currentCategory.id === product.categoryId,
         );
 
-        return product.isActive && category?.isActive;
+        return product.isActive && product.inStock && category?.isActive;
       }),
-    [menu.categories, menu.products],
+    [menu.categories, menu.menuItems],
   );
 
   useEffect(() => {
@@ -69,7 +74,7 @@ export function HomeScreen({ hasRepeatOrder }: HomeScreenProps) {
   const cartTotal = useMemo(
     () =>
       cartItems.reduce(
-        (sum, item) => sum + item.product.price * item.quantity,
+        (sum, item) => sum + getMenuItemPrice(item.product) * item.quantity,
         0,
       ),
     [cartItems],
@@ -138,8 +143,8 @@ export function HomeScreen({ hasRepeatOrder }: HomeScreenProps) {
       items: cartItems.map((item) => ({
         id: item.product.id,
         name: item.product.name,
-        volume: item.product.volume,
-        baristaType: item.product.baristaType,
+        volume: getMenuItemSummary(item.product),
+        baristaType: getMenuItemWorkstationType(item.product),
         quantity: item.quantity,
       })),
     });

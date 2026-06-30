@@ -1,597 +1,468 @@
 "use client";
 
-import type { ReactNode } from "react";
-import type { ChangeEvent } from "react";
-import { useMemo, useState } from "react";
+import type { ChangeEvent, ReactNode } from "react";
+import { useState } from "react";
 import {
+  addAddonGroup,
+  addAddonOption,
   addCategory,
-  addProduct,
+  addMenuItem,
+  addVariant,
+  addWorkingZone,
+  setMenuItemAddonGroup,
+  updateAddonGroup,
+  updateAddonOption,
   updateCategory,
-  updateProduct,
+  updateMenuItem,
+  updateVariant,
+  updateWorkingZone,
   useMenu,
-  type BaristaProductType,
-  type MenuCategory,
-  type MenuProduct,
+  type AddonSelectionType,
+  type MenuItem,
+  type MenuItemKind,
 } from "@/lib/menuStore";
 
-type ProductDraft = {
+type MenuItemDraft = {
   name: string;
-  categoryId: string;
-  price: string;
-  volume: string;
+  description: string;
   imageSrc: string;
-  baristaType: BaristaProductType;
+  categoryId: string;
+  workingZoneId: string;
+  kind: MenuItemKind;
+  basePrice: string;
+  sortOrder: string;
   isActive: boolean;
   inStock: boolean;
 };
 
-const emptyProductDraft: ProductDraft = {
+type AddonGroupDraft = {
+  name: string;
+  icon: string;
+  required: boolean;
+  selectionType: AddonSelectionType;
+  sortOrder: string;
+  isActive: boolean;
+};
+
+type OptionDraft = {
+  name: string;
+  priceDelta: string;
+  sortOrder: string;
+  isActive: boolean;
+};
+
+type VariantDraft = OptionDraft;
+
+const emptyItemDraft: MenuItemDraft = {
   name: "",
-  categoryId: "",
-  price: "",
-  volume: "",
+  description: "",
   imageSrc: "",
-  baristaType: "drink",
+  categoryId: "",
+  workingZoneId: "",
+  kind: "drink",
+  basePrice: "",
+  sortOrder: "100",
   isActive: true,
   inStock: true,
+};
+
+const emptyAddonGroupDraft: AddonGroupDraft = {
+  name: "",
+  icon: "•",
+  required: false,
+  selectionType: "single",
+  sortOrder: "100",
+  isActive: true,
+};
+
+const emptyOptionDraft: OptionDraft = {
+  name: "",
+  priceDelta: "0",
+  sortOrder: "10",
+  isActive: true,
 };
 
 export function ManagePanel() {
   const menu = useMenu();
   const [categoryName, setCategoryName] = useState("");
   const [categoryIcon, setCategoryIcon] = useState("☕");
-  const [productDraft, setProductDraft] = useState<ProductDraft>({
-    ...emptyProductDraft,
+  const [zoneName, setZoneName] = useState("");
+  const [zoneIcon, setZoneIcon] = useState("☕");
+  const [itemDraft, setItemDraft] = useState<MenuItemDraft>({
+    ...emptyItemDraft,
     categoryId: menu.categories[0]?.id ?? "",
+    workingZoneId: menu.workingZones[0]?.id ?? "",
   });
+  const [groupDraft, setGroupDraft] = useState<AddonGroupDraft>(emptyAddonGroupDraft);
+  const [optionDrafts, setOptionDrafts] = useState<Record<string, OptionDraft>>({});
+  const [variantDrafts, setVariantDrafts] = useState<Record<string, VariantDraft>>({});
 
-  const categoryNameById = useMemo(
-    () =>
-      menu.categories.reduce<Record<string, string>>((acc, category) => {
-        acc[category.id] = category.name;
-        return acc;
-      }, {}),
-    [menu.categories],
-  );
-
-  function handleAddCategory() {
+  function createCategory() {
     addCategory({ name: categoryName, icon: categoryIcon });
     setCategoryName("");
     setCategoryIcon("☕");
   }
 
-  function handleAddProduct() {
-    const categoryId = productDraft.categoryId || menu.categories[0]?.id;
+  function createZone() {
+    addWorkingZone({ name: zoneName, icon: zoneIcon });
+    setZoneName("");
+    setZoneIcon("☕");
+  }
 
-    if (!categoryId) {
-      return;
-    }
+  function createItem() {
+    const categoryId = itemDraft.categoryId || menu.categories[0]?.id;
+    const workingZoneId = itemDraft.workingZoneId || menu.workingZones[0]?.id;
+    if (!categoryId || !workingZoneId) return;
 
-    addProduct({
-      ...productDraft,
+    addMenuItem({
+      name: itemDraft.name,
+      description: itemDraft.description,
+      imageSrc: itemDraft.imageSrc,
       categoryId,
-      price: Number(productDraft.price) || 0,
+      workingZoneId,
+      kind: itemDraft.kind,
+      basePrice: Number(itemDraft.basePrice) || 0,
+      sortOrder: Number(itemDraft.sortOrder) || 100,
+      isActive: itemDraft.isActive,
+      inStock: itemDraft.inStock,
     });
+    setItemDraft({ ...emptyItemDraft, categoryId, workingZoneId });
+  }
 
-    setProductDraft({
-      ...emptyProductDraft,
-      categoryId,
+  function createAddonGroup() {
+    addAddonGroup({
+      name: groupDraft.name,
+      icon: groupDraft.icon,
+      required: groupDraft.required,
+      selectionType: groupDraft.selectionType,
+      sortOrder: Number(groupDraft.sortOrder) || 100,
+      isActive: groupDraft.isActive,
     });
+    setGroupDraft(emptyAddonGroupDraft);
+  }
+
+  function createAddonOption(groupId: string) {
+    const draft = optionDrafts[groupId] ?? emptyOptionDraft;
+    addAddonOption(groupId, {
+      name: draft.name,
+      priceDelta: Number(draft.priceDelta) || 0,
+      sortOrder: Number(draft.sortOrder) || 10,
+      isActive: draft.isActive,
+    });
+    setOptionDrafts({ ...optionDrafts, [groupId]: emptyOptionDraft });
+  }
+
+  function createVariant(itemId: string) {
+    const draft = variantDrafts[itemId] ?? emptyOptionDraft;
+    addVariant(itemId, {
+      name: draft.name,
+      priceDelta: Number(draft.priceDelta) || 0,
+      sortOrder: Number(draft.sortOrder) || 10,
+      isActive: draft.isActive,
+    });
+    setVariantDrafts({ ...variantDrafts, [itemId]: emptyOptionDraft });
   }
 
   return (
-    <main className="min-h-screen bg-[#F7F7F7] px-6 py-6 text-[#1A1A1A] lg:px-10">
-      <div className="mx-auto flex w-full max-w-7xl flex-col gap-7">
-        <header className="flex flex-col gap-4 rounded-[32px] bg-white px-6 py-6 shadow-[0_18px_44px_rgba(26,26,26,0.06)] md:flex-row md:items-end md:justify-between">
-          <div>
-            <p className="text-4xl font-bold leading-none text-[#E30613]">
-              Кафема Курорт
-            </p>
-            <h1 className="mt-3 text-2xl font-bold">Кабинет собственника</h1>
-          </div>
-          <nav className="flex flex-wrap gap-2 text-sm font-bold text-[#777777]">
-            <a className="rounded-full bg-[#F7F7F7] px-4 py-2" href="#menu">
-              Меню
-            </a>
-            <a
-              className="rounded-full bg-[#F7F7F7] px-4 py-2"
-              href="#categories"
-            >
-              Категории
-            </a>
-            <a
-              className="rounded-full bg-[#F7F7F7] px-4 py-2"
-              href="#stop-list"
-            >
-              Стоп-лист
-            </a>
-          </nav>
+    <main className="min-h-screen bg-[#F7F7F7] p-6 text-[#1A1A1A]">
+      <div className="mx-auto max-w-7xl space-y-6">
+        <header className="rounded-xl bg-white p-4">
+          <h1 className="text-2xl font-bold">Кафема Курорт</h1>
+          <p className="text-sm text-[#777777]">
+            Минимальный кабинет собственника: модель меню и библиотека дополнений
+          </p>
         </header>
 
-        <section id="categories" className="grid gap-5 lg:grid-cols-[360px_1fr]">
-          <Panel title="Категории" subtitle="Скрытые категории не видны гостям.">
-            <div className="grid grid-cols-[88px_1fr] gap-3">
-              <Field label="Иконка">
-                <input
-                  className="h-12 w-full rounded-[16px] border border-[#EFEFEF] bg-white px-3 text-base outline-none focus:border-[#E30613]"
-                  value={categoryIcon}
-                  onChange={(event) => setCategoryIcon(event.target.value)}
-                />
-              </Field>
-              <Field label="Название">
-                <input
-                  className="h-12 w-full rounded-[16px] border border-[#EFEFEF] bg-white px-3 text-base outline-none focus:border-[#E30613]"
-                  value={categoryName}
-                  onChange={(event) => setCategoryName(event.target.value)}
-                  placeholder="Например: Завтраки"
-                />
-              </Field>
-            </div>
-            <button
-              type="button"
-              className="mt-4 h-12 w-full rounded-[18px] bg-[#E30613] text-base font-bold text-white"
-              onClick={handleAddCategory}
-            >
-              Добавить категорию
+        <Panel title="Пункты меню">
+          <MenuItemForm
+            draft={itemDraft}
+            setDraft={setItemDraft}
+            categories={menu.categories}
+            workingZones={menu.workingZones}
+          />
+          <button className="mt-3 rounded bg-[#E30613] px-4 py-2 font-bold text-white" onClick={createItem}>
+            Создать пункт меню
+          </button>
+
+          <div className="mt-5 space-y-4">
+            {[...menu.menuItems].sort((a, b) => a.sortOrder - b.sortOrder).map((item) => (
+              <MenuItemEditor
+                key={item.id}
+                item={item}
+                categories={menu.categories}
+                workingZones={menu.workingZones}
+                addonGroups={menu.addonGroups}
+                variantDraft={variantDrafts[item.id] ?? emptyOptionDraft}
+                setVariantDraft={(draft) => setVariantDrafts({ ...variantDrafts, [item.id]: draft })}
+                addVariant={() => createVariant(item.id)}
+              />
+            ))}
+          </div>
+        </Panel>
+
+        <Panel title="Категории">
+          <div className="grid gap-2 md:grid-cols-[100px_1fr_160px]">
+            <Input label="Иконка" value={categoryIcon} onChange={setCategoryIcon} />
+            <Input label="Название" value={categoryName} onChange={setCategoryName} />
+            <button className="mt-6 rounded bg-[#E30613] px-3 py-2 font-bold text-white" onClick={createCategory}>
+              Добавить
             </button>
-          </Panel>
+          </div>
+          <div className="mt-4 grid gap-2 md:grid-cols-2">
+            {menu.categories.map((category) => (
+              <div className="grid grid-cols-[80px_1fr_120px] gap-2 rounded border border-[#EFEFEF] p-3" key={category.id}>
+                <Input label="Иконка" value={category.icon} onChange={(icon) => updateCategory(category.id, { icon })} />
+                <Input label="Название" value={category.name} onChange={(name) => updateCategory(category.id, { name })} />
+                <Toggle active={category.isActive} trueText="Активна" falseText="Скрыта" onClick={() => updateCategory(category.id, { isActive: !category.isActive })} />
+              </div>
+            ))}
+          </div>
+        </Panel>
 
-          <Panel title="Список категорий" subtitle="Редактирование без удаления.">
-            <div className="grid gap-3 md:grid-cols-2">
-              {menu.categories.map((category) => (
-                <CategoryRow key={category.id} category={category} />
-              ))}
-            </div>
-          </Panel>
-        </section>
+        <Panel title="Библиотека дополнений">
+          <div className="grid gap-2 md:grid-cols-[80px_1fr_150px_120px_120px]">
+            <Input label="Иконка" value={groupDraft.icon} onChange={(icon) => setGroupDraft({ ...groupDraft, icon })} />
+            <Input label="Группа" value={groupDraft.name} onChange={(name) => setGroupDraft({ ...groupDraft, name })} />
+            <Select label="Тип выбора" value={groupDraft.selectionType} onChange={(selectionType) => setGroupDraft({ ...groupDraft, selectionType: selectionType as AddonSelectionType })} options={[{ value: "single", label: "один" }, { value: "multiple", label: "несколько" }]} />
+            <Toggle active={groupDraft.required} trueText="Обяз." falseText="Необяз." onClick={() => setGroupDraft({ ...groupDraft, required: !groupDraft.required })} />
+            <button className="mt-6 rounded bg-[#E30613] px-3 py-2 font-bold text-white" onClick={createAddonGroup}>
+              Добавить
+            </button>
+          </div>
 
-        <section id="menu" className="grid gap-5 xl:grid-cols-[420px_1fr]">
-          <Panel title="Добавить товар" subtitle="Новый товар сразу попадает в меню.">
-            <ProductForm
-              draft={productDraft}
-              categories={menu.categories}
-              onChange={setProductDraft}
-              onSubmit={handleAddProduct}
-            />
-          </Panel>
+          <div className="mt-5 space-y-4">
+            {[...menu.addonGroups].sort((a, b) => a.sortOrder - b.sortOrder).map((group) => {
+              const draft = optionDrafts[group.id] ?? emptyOptionDraft;
+              return (
+                <div className="rounded border border-[#EFEFEF] p-3" key={group.id}>
+                  <div className="grid gap-2 md:grid-cols-[70px_1fr_140px_120px_120px]">
+                    <Input label="Иконка" value={group.icon} onChange={(icon) => updateAddonGroup(group.id, { icon })} />
+                    <Input label="Название" value={group.name} onChange={(name) => updateAddonGroup(group.id, { name })} />
+                    <Select label="Тип" value={group.selectionType} onChange={(selectionType) => updateAddonGroup(group.id, { selectionType: selectionType as AddonSelectionType })} options={[{ value: "single", label: "один" }, { value: "multiple", label: "несколько" }]} />
+                    <Toggle active={group.required} trueText="Обяз." falseText="Необяз." onClick={() => updateAddonGroup(group.id, { required: !group.required })} />
+                    <Toggle active={group.isActive} trueText="Активна" falseText="Скрыта" onClick={() => updateAddonGroup(group.id, { isActive: !group.isActive })} />
+                  </div>
+                  <div className="mt-3 space-y-2">
+                    {group.options.map((option) => (
+                      <div className="grid gap-2 md:grid-cols-[1fr_100px_90px_110px]" key={option.id}>
+                        <Input label="Вариант" value={option.name} onChange={(name) => updateAddonOption(group.id, option.id, { name })} />
+                        <Input label="+ цена" value={String(option.priceDelta)} onChange={(priceDelta) => updateAddonOption(group.id, option.id, { priceDelta: Number(priceDelta) || 0 })} />
+                        <Input label="Порядок" value={String(option.sortOrder)} onChange={(sortOrder) => updateAddonOption(group.id, option.id, { sortOrder: Number(sortOrder) || 0 })} />
+                        <Toggle active={option.isActive} trueText="Активен" falseText="Скрыт" onClick={() => updateAddonOption(group.id, option.id, { isActive: !option.isActive })} />
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-3 grid gap-2 md:grid-cols-[1fr_100px_90px_120px]">
+                    <Input label="Новый вариант" value={draft.name} onChange={(name) => setOptionDrafts({ ...optionDrafts, [group.id]: { ...draft, name } })} />
+                    <Input label="+ цена" value={draft.priceDelta} onChange={(priceDelta) => setOptionDrafts({ ...optionDrafts, [group.id]: { ...draft, priceDelta } })} />
+                    <Input label="Порядок" value={draft.sortOrder} onChange={(sortOrder) => setOptionDrafts({ ...optionDrafts, [group.id]: { ...draft, sortOrder } })} />
+                    <button className="mt-6 rounded bg-[#E30613] px-3 py-2 font-bold text-white" onClick={() => createAddonOption(group.id)}>
+                      Добавить
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </Panel>
 
-          <Panel title="Меню" subtitle="Товары можно скрывать и выключать из продажи.">
-            <div className="grid gap-4 lg:grid-cols-2">
-              {menu.products.map((product) => (
-                <ProductEditor
-                  key={product.id}
-                  product={product}
-                  categories={menu.categories}
-                  categoryName={categoryNameById[product.categoryId] ?? "Без категории"}
-                />
-              ))}
-            </div>
-          </Panel>
-        </section>
+        <Panel title="Рабочие зоны">
+          <div className="grid gap-2 md:grid-cols-[100px_1fr_160px]">
+            <Input label="Иконка" value={zoneIcon} onChange={setZoneIcon} />
+            <Input label="Название" value={zoneName} onChange={setZoneName} />
+            <button className="mt-6 rounded bg-[#E30613] px-3 py-2 font-bold text-white" onClick={createZone}>
+              Добавить
+            </button>
+          </div>
+          <div className="mt-4 grid gap-2 md:grid-cols-2">
+            {menu.workingZones.map((zone) => (
+              <div className="grid grid-cols-[80px_1fr_120px] gap-2 rounded border border-[#EFEFEF] p-3" key={zone.id}>
+                <Input label="Иконка" value={zone.icon} onChange={(icon) => updateWorkingZone(zone.id, { icon })} />
+                <Input label="Название" value={zone.name} onChange={(name) => updateWorkingZone(zone.id, { name })} />
+                <Toggle active={zone.isActive} trueText="Активна" falseText="Скрыта" onClick={() => updateWorkingZone(zone.id, { isActive: !zone.isActive })} />
+              </div>
+            ))}
+          </div>
+        </Panel>
 
-        <section id="stop-list">
-          <Panel
-            title="Стоп-лист"
-            subtitle="Быстро выключайте закончившиеся позиции."
-          >
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-              {menu.products
-                .filter((product) => product.isActive)
-                .map((product) => (
-                  <StopListItem key={product.id} product={product} />
-                ))}
-            </div>
-          </Panel>
-        </section>
       </div>
     </main>
   );
 }
 
-function Panel({
-  title,
-  subtitle,
-  children,
-}: {
-  title: string;
-  subtitle: string;
-  children: ReactNode;
-}) {
+function Panel({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section className="rounded-[28px] bg-white p-5 shadow-[0_18px_44px_rgba(26,26,26,0.06)]">
-      <div className="mb-5">
-        <h2 className="text-2xl font-bold">{title}</h2>
-        <p className="mt-1 text-sm font-medium text-[#777777]">{subtitle}</p>
-      </div>
+    <section className="rounded-xl bg-white p-4">
+      <h2 className="mb-4 text-xl font-bold">{title}</h2>
       {children}
     </section>
   );
 }
 
-function Field({
-  label,
-  children,
-}: {
-  label: string;
-  children: ReactNode;
-}) {
-  return (
-    <label className="block">
-      <span className="text-xs font-bold text-[#777777]">{label}</span>
-      <div className="mt-1">{children}</div>
-    </label>
-  );
-}
-
-function CategoryRow({ category }: { category: MenuCategory }) {
-  return (
-    <article className="rounded-[22px] border border-[#EFEFEF] p-4">
-      <div className="grid grid-cols-[64px_1fr] gap-3">
-        <Field label="Иконка">
-          <input
-            className="h-11 w-full rounded-[14px] border border-[#EFEFEF] px-3 outline-none focus:border-[#E30613]"
-            value={category.icon}
-            onChange={(event) =>
-              updateCategory(category.id, { icon: event.target.value })
-            }
-          />
-        </Field>
-        <Field label="Название">
-          <input
-            className="h-11 w-full rounded-[14px] border border-[#EFEFEF] px-3 outline-none focus:border-[#E30613]"
-            value={category.name}
-            onChange={(event) =>
-              updateCategory(category.id, { name: event.target.value })
-            }
-          />
-        </Field>
-      </div>
-      <ToggleButton
-        active={category.isActive}
-        activeLabel="Показана"
-        inactiveLabel="Скрыта"
-        onClick={() =>
-          updateCategory(category.id, { isActive: !category.isActive })
-        }
-      />
-    </article>
-  );
-}
-
-function ProductForm({
+function MenuItemForm({
   draft,
+  setDraft,
   categories,
-  onChange,
-  onSubmit,
+  workingZones,
 }: {
-  draft: ProductDraft;
-  categories: MenuCategory[];
-  onChange: (draft: ProductDraft) => void;
-  onSubmit: () => void;
+  draft: MenuItemDraft;
+  setDraft: (draft: MenuItemDraft) => void;
+  categories: { id: string; name: string }[];
+  workingZones: { id: string; name: string }[];
 }) {
   return (
-    <div className="space-y-4">
-      <Field label="Название">
-        <input
-          className="h-12 w-full rounded-[16px] border border-[#EFEFEF] px-3 outline-none focus:border-[#E30613]"
-          value={draft.name}
-          onChange={(event) => onChange({ ...draft, name: event.target.value })}
-          placeholder="Например: Матча латте"
-        />
-      </Field>
-      <div className="grid grid-cols-2 gap-3">
-        <Field label="Категория">
-          <select
-            className="h-12 w-full rounded-[16px] border border-[#EFEFEF] bg-white px-3 outline-none focus:border-[#E30613]"
-            value={draft.categoryId || categories[0]?.id}
-            onChange={(event) =>
-              onChange({ ...draft, categoryId: event.target.value })
-            }
-          >
-            {categories.map((category) => (
-              <option key={category.id} value={category.id}>
-                {category.name}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <Field label="Тип для бариста">
-          <select
-            className="h-12 w-full rounded-[16px] border border-[#EFEFEF] bg-white px-3 outline-none focus:border-[#E30613]"
-            value={draft.baristaType}
-            onChange={(event) =>
-              onChange({
-                ...draft,
-                baristaType: event.target.value as BaristaProductType,
-              })
-            }
-          >
-            <option value="drink">drink</option>
-            <option value="food">food</option>
-          </select>
-        </Field>
+    <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+      <Input label="Название" value={draft.name} onChange={(name) => setDraft({ ...draft, name })} />
+      <Input label="Описание" value={draft.description} onChange={(description) => setDraft({ ...draft, description })} />
+      <Select label="Категория" value={draft.categoryId || categories[0]?.id || ""} onChange={(categoryId) => setDraft({ ...draft, categoryId })} options={categories.map((category) => ({ value: category.id, label: category.name }))} />
+      <Select label="Рабочая зона" value={draft.workingZoneId || workingZones[0]?.id || ""} onChange={(workingZoneId) => setDraft({ ...draft, workingZoneId })} options={workingZones.map((zone) => ({ value: zone.id, label: zone.name }))} />
+      <Select label="Тип" value={draft.kind} onChange={(kind) => setDraft({ ...draft, kind: kind as MenuItemKind })} options={[{ value: "drink", label: "напиток" }, { value: "food", label: "еда" }, { value: "dessert", label: "десерт" }, { value: "combo", label: "комбо" }, { value: "seasonal", label: "сезонное" }, { value: "certificate", label: "сертификат" }, { value: "other", label: "другое" }]} />
+      <Input label="Базовая цена" value={draft.basePrice} onChange={(basePrice) => setDraft({ ...draft, basePrice })} />
+      <Input label="Порядок" value={draft.sortOrder} onChange={(sortOrder) => setDraft({ ...draft, sortOrder })} />
+      <div className="flex gap-2">
+        <Toggle active={draft.isActive} trueText="Активен" falseText="Скрыт" onClick={() => setDraft({ ...draft, isActive: !draft.isActive })} />
+        <Toggle active={draft.inStock} trueText="В наличии" falseText="Нет" onClick={() => setDraft({ ...draft, inStock: !draft.inStock })} />
       </div>
-      <div className="grid grid-cols-2 gap-3">
-        <Field label="Цена">
-          <input
-            className="h-12 w-full rounded-[16px] border border-[#EFEFEF] px-3 outline-none focus:border-[#E30613]"
-            value={draft.price}
-            inputMode="numeric"
-            onChange={(event) =>
-              onChange({ ...draft, price: event.target.value })
-            }
-            placeholder="250"
-          />
-        </Field>
-        <Field label="Объем / описание">
-          <input
-            className="h-12 w-full rounded-[16px] border border-[#EFEFEF] px-3 outline-none focus:border-[#E30613]"
-            value={draft.volume}
-            onChange={(event) =>
-              onChange({ ...draft, volume: event.target.value })
-            }
-            placeholder="300 мл"
-          />
-        </Field>
+      <div className="md:col-span-2 xl:col-span-4">
+        <PhotoUpload imageSrc={draft.imageSrc} onChange={(imageSrc) => setDraft({ ...draft, imageSrc })} />
       </div>
-      <PhotoUpload
-        imageSrc={draft.imageSrc}
-        onChange={(imageSrc) => onChange({ ...draft, imageSrc })}
-      />
-      <div className="grid grid-cols-2 gap-3">
-        <ToggleButton
-          active={draft.isActive}
-          activeLabel="Активен"
-          inactiveLabel="Скрыт"
-          onClick={() => onChange({ ...draft, isActive: !draft.isActive })}
-        />
-        <ToggleButton
-          active={draft.inStock}
-          activeLabel="В наличии"
-          inactiveLabel="Нет в наличии"
-          onClick={() => onChange({ ...draft, inStock: !draft.inStock })}
-        />
-      </div>
-      <button
-        type="button"
-        className="h-12 w-full rounded-[18px] bg-[#E30613] text-base font-bold text-white"
-        onClick={onSubmit}
-      >
-        Добавить товар
-      </button>
     </div>
   );
 }
 
-function ProductEditor({
-  product,
+function MenuItemEditor({
+  item,
   categories,
-  categoryName,
+  workingZones,
+  addonGroups,
+  variantDraft,
+  setVariantDraft,
+  addVariant,
 }: {
-  product: MenuProduct;
-  categories: MenuCategory[];
-  categoryName: string;
+  item: MenuItem;
+  categories: { id: string; name: string }[];
+  workingZones: { id: string; name: string }[];
+  addonGroups: { id: string; name: string; icon: string; isActive: boolean }[];
+  variantDraft: VariantDraft;
+  setVariantDraft: (draft: VariantDraft) => void;
+  addVariant: () => void;
 }) {
   return (
-    <article className="rounded-[24px] border border-[#EFEFEF] p-4">
-      <div className="flex gap-4">
-        <div className="h-24 w-24 shrink-0 overflow-hidden rounded-[18px] bg-[#F7F7F7]">
-          <img
-            src={product.imageSrc}
-            alt={product.name}
-            className="h-full w-full object-cover"
-          />
-        </div>
-        <div className="min-w-0 flex-1">
-          <input
-            className="h-10 w-full rounded-[14px] border border-[#EFEFEF] px-3 text-base font-bold outline-none focus:border-[#E30613]"
-            value={product.name}
-            onChange={(event) =>
-              updateProduct(product.id, { name: event.target.value })
-            }
-          />
-          <p className="mt-2 text-sm font-semibold text-[#777777]">
-            {categoryName}
-          </p>
+    <article className="rounded border border-[#EFEFEF] p-3">
+      <div className="grid gap-2 md:grid-cols-[100px_1fr]">
+        <PhotoUpload imageSrc={item.imageSrc} onChange={(imageSrc) => updateMenuItem(item.id, { imageSrc })} />
+        <div className="grid gap-2 md:grid-cols-3">
+          <Input label="Название" value={item.name} onChange={(name) => updateMenuItem(item.id, { name })} />
+          <Input label="Описание" value={item.description} onChange={(description) => updateMenuItem(item.id, { description })} />
+          <Input label="Базовая цена" value={String(item.basePrice)} onChange={(basePrice) => updateMenuItem(item.id, { basePrice: Number(basePrice) || 0 })} />
+          <Select label="Категория" value={item.categoryId} onChange={(categoryId) => updateMenuItem(item.id, { categoryId })} options={categories.map((category) => ({ value: category.id, label: category.name }))} />
+          <Select label="Рабочая зона" value={item.workingZoneId} onChange={(workingZoneId) => updateMenuItem(item.id, { workingZoneId })} options={workingZones.map((zone) => ({ value: zone.id, label: zone.name }))} />
+          <Input label="Порядок" value={String(item.sortOrder)} onChange={(sortOrder) => updateMenuItem(item.id, { sortOrder: Number(sortOrder) || 0 })} />
+          <Toggle active={item.isActive} trueText="Активен" falseText="Скрыт" onClick={() => updateMenuItem(item.id, { isActive: !item.isActive })} />
+          <Toggle active={item.inStock} trueText="В наличии" falseText="Нет" onClick={() => updateMenuItem(item.id, { inStock: !item.inStock })} />
         </div>
       </div>
-      <div className="mt-4 grid grid-cols-2 gap-3">
-        <Field label="Категория">
-          <select
-            className="h-11 w-full rounded-[14px] border border-[#EFEFEF] bg-white px-3 outline-none focus:border-[#E30613]"
-            value={product.categoryId}
-            onChange={(event) =>
-              updateProduct(product.id, { categoryId: event.target.value })
-            }
-          >
-            {categories.map((category) => (
-              <option key={category.id} value={category.id}>
-                {category.name}
-              </option>
+
+      <div className="mt-3 grid gap-4 xl:grid-cols-3">
+        <div>
+          <h3 className="font-bold">Варианты</h3>
+          <div className="space-y-2">
+            {item.variants.map((variant) => (
+              <div className="grid grid-cols-[1fr_90px_90px_90px] gap-2" key={variant.id}>
+                <Input label="Название" value={variant.name} onChange={(name) => updateVariant(item.id, variant.id, { name })} />
+                <Input label="+ цена" value={String(variant.priceDelta)} onChange={(priceDelta) => updateVariant(item.id, variant.id, { priceDelta: Number(priceDelta) || 0 })} />
+                <Input label="Порядок" value={String(variant.sortOrder)} onChange={(sortOrder) => updateVariant(item.id, variant.id, { sortOrder: Number(sortOrder) || 0 })} />
+                <Toggle active={variant.isActive} trueText="Активен" falseText="Скрыт" onClick={() => updateVariant(item.id, variant.id, { isActive: !variant.isActive })} />
+              </div>
             ))}
-          </select>
-        </Field>
-        <Field label="Тип">
-          <select
-            className="h-11 w-full rounded-[14px] border border-[#EFEFEF] bg-white px-3 outline-none focus:border-[#E30613]"
-            value={product.baristaType}
-            onChange={(event) =>
-              updateProduct(product.id, {
-                baristaType: event.target.value as BaristaProductType,
-              })
-            }
-          >
-            <option value="drink">drink</option>
-            <option value="food">food</option>
-          </select>
-        </Field>
-        <Field label="Цена">
-          <input
-            className="h-11 w-full rounded-[14px] border border-[#EFEFEF] px-3 outline-none focus:border-[#E30613]"
-            value={product.price}
-            inputMode="numeric"
-            onChange={(event) =>
-              updateProduct(product.id, { price: Number(event.target.value) })
-            }
-          />
-        </Field>
-        <Field label="Объем / описание">
-          <input
-            className="h-11 w-full rounded-[14px] border border-[#EFEFEF] px-3 outline-none focus:border-[#E30613]"
-            value={product.volume}
-            onChange={(event) =>
-              updateProduct(product.id, { volume: event.target.value })
-            }
-          />
-        </Field>
-      </div>
-      <div className="mt-4">
-        <PhotoUpload
-          imageSrc={product.imageSrc}
-          onChange={(imageSrc) => updateProduct(product.id, { imageSrc })}
-        />
-      </div>
-      <div className="mt-4 grid grid-cols-2 gap-3">
-        <ToggleButton
-          active={product.isActive}
-          activeLabel="Активен"
-          inactiveLabel="Скрыт"
-          onClick={() =>
-            updateProduct(product.id, { isActive: !product.isActive })
-          }
-        />
-        <ToggleButton
-          active={product.inStock}
-          activeLabel="В наличии"
-          inactiveLabel="Нет в наличии"
-          onClick={() =>
-            updateProduct(product.id, { inStock: !product.inStock })
-          }
-        />
+          </div>
+          <div className="mt-2 grid grid-cols-[1fr_90px_90px_100px] gap-2">
+            <Input label="Новый вариант" value={variantDraft.name} onChange={(name) => setVariantDraft({ ...variantDraft, name })} />
+            <Input label="+ цена" value={variantDraft.priceDelta} onChange={(priceDelta) => setVariantDraft({ ...variantDraft, priceDelta })} />
+            <Input label="Порядок" value={variantDraft.sortOrder} onChange={(sortOrder) => setVariantDraft({ ...variantDraft, sortOrder })} />
+            <button className="mt-6 rounded bg-[#E30613] px-2 py-1 font-bold text-white" onClick={addVariant}>Добавить</button>
+          </div>
+        </div>
+        <div className="xl:col-span-2">
+          <h3 className="font-bold">Подключенные группы дополнений</h3>
+          <div className="mt-2 grid gap-2 md:grid-cols-2">
+            {addonGroups.filter((group) => group.isActive).map((group) => (
+              <label className="flex items-center gap-2 rounded border border-[#EFEFEF] p-2" key={group.id}>
+                <input
+                  type="checkbox"
+                  checked={item.addonGroupIds.includes(group.id)}
+                  onChange={(event) => setMenuItemAddonGroup(item.id, group.id, event.target.checked)}
+                />
+                <span>{group.icon}</span>
+                <span className="font-semibold">{group.name}</span>
+              </label>
+            ))}
+          </div>
+        </div>
       </div>
     </article>
   );
 }
 
-function StopListItem({ product }: { product: MenuProduct }) {
+function Input({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
   return (
-    <article className="flex items-center justify-between gap-4 rounded-[22px] border border-[#EFEFEF] p-4">
-      <div className="min-w-0">
-        <p className="truncate text-base font-bold">{product.name}</p>
-        <p className="mt-1 text-sm font-semibold text-[#777777]">
-          {product.volume}
-        </p>
-      </div>
-      <ToggleButton
-        active={product.inStock}
-        activeLabel="В наличии"
-        inactiveLabel="Нет в наличии"
-        onClick={() => updateProduct(product.id, { inStock: !product.inStock })}
-      />
-    </article>
+    <label className="block">
+      <span className="text-xs font-bold text-[#777777]">{label}</span>
+      <input className="mt-1 h-10 w-full rounded border border-[#EFEFEF] px-2" value={value} onChange={(event) => onChange(event.target.value)} />
+    </label>
   );
 }
 
-function PhotoUpload({
-  imageSrc,
-  onChange,
-}: {
-  imageSrc: string;
-  onChange: (imageSrc: string) => void;
-}) {
+function Select({ label, value, options, onChange }: { label: string; value: string; options: Array<{ value: string; label: string }>; onChange: (value: string) => void }) {
+  return (
+    <label className="block">
+      <span className="text-xs font-bold text-[#777777]">{label}</span>
+      <select className="mt-1 h-10 w-full rounded border border-[#EFEFEF] bg-white px-2" value={value} onChange={(event) => onChange(event.target.value)}>
+        {options.map((option) => (
+          <option value={option.value} key={option.value}>{option.label}</option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function Toggle({ active, trueText, falseText, onClick }: { active: boolean; trueText: string; falseText: string; onClick: () => void }) {
+  return (
+    <button type="button" className={`mt-6 h-10 rounded px-3 text-sm font-bold ${active ? "bg-[#E30613] text-white" : "bg-[#F7F7F7] text-[#777777]"}`} onClick={onClick}>
+      {active ? trueText : falseText}
+    </button>
+  );
+}
+
+function PhotoUpload({ imageSrc, onChange }: { imageSrc: string; onChange: (imageSrc: string) => void }) {
   const [error, setError] = useState("");
-  const [isProcessing, setIsProcessing] = useState(false);
 
   async function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = "";
-
-    if (!file) {
-      return;
-    }
-
+    if (!file) return;
     setError("");
-    setIsProcessing(true);
-
     try {
-      const imageDataUrl = await prepareProductImage(file);
-      onChange(imageDataUrl);
+      onChange(await prepareProductImage(file));
     } catch (error) {
-      setError(
-        error instanceof Error
-          ? error.message
-          : "Не удалось загрузить фото. Попробуйте другой файл.",
-      );
-    } finally {
-      setIsProcessing(false);
+      setError(error instanceof Error ? error.message : "Не удалось загрузить фото");
     }
   }
 
   return (
     <div>
-      <span className="text-xs font-bold text-[#777777]">Фото товара</span>
-      <div className="mt-2 flex items-center gap-4">
-        <div className="h-24 w-24 shrink-0 overflow-hidden rounded-[18px] bg-[#F7F7F7]">
-          {imageSrc ? (
-            <img
-              src={imageSrc}
-              alt=""
-              className="h-full w-full object-cover"
-            />
-          ) : (
-            <div className="flex h-full w-full items-center justify-center text-xs font-bold text-[#777777]">
-              Нет фото
-            </div>
-          )}
+      <span className="text-xs font-bold text-[#777777]">Фото</span>
+      <div className="mt-1 flex items-center gap-2">
+        <div className="h-16 w-16 overflow-hidden rounded bg-[#F7F7F7]">
+          {imageSrc ? <img src={imageSrc} alt="" className="h-full w-full object-cover" /> : null}
         </div>
-        <div className="min-w-0 flex-1">
-          <label className="inline-flex h-11 cursor-pointer items-center justify-center rounded-[16px] bg-[#E30613] px-4 text-sm font-bold text-white">
-            {isProcessing ? "Обработка..." : "Загрузить фото"}
-            <input
-              className="hidden"
-              type="file"
-              accept="image/jpeg,image/png,image/webp"
-              onChange={handleFileChange}
-              disabled={isProcessing}
-            />
-          </label>
-          <p className="mt-2 text-xs leading-5 text-[#777777]">
-            JPG, PNG или WEBP. Фото временно хранится локально в приложении.
-          </p>
-          {error ? (
-            <p className="mt-2 text-xs font-semibold text-[#E30613]">
-              {error}
-            </p>
-          ) : null}
-        </div>
+        <label className="cursor-pointer rounded bg-[#E30613] px-3 py-2 text-sm font-bold text-white">
+          Загрузить
+          <input className="hidden" type="file" accept="image/jpeg,image/png,image/webp" onChange={handleFileChange} />
+        </label>
       </div>
+      {error ? <p className="mt-1 text-xs font-semibold text-[#E30613]">{error}</p> : null}
     </div>
-  );
-}
-
-function ToggleButton({
-  active,
-  activeLabel,
-  inactiveLabel,
-  onClick,
-}: {
-  active: boolean;
-  activeLabel: string;
-  inactiveLabel: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      className={`h-11 rounded-[16px] px-4 text-sm font-bold ${
-        active
-          ? "bg-[#E30613] text-white"
-          : "bg-[#F7F7F7] text-[#777777]"
-      }`}
-      onClick={onClick}
-    >
-      {active ? activeLabel : inactiveLabel}
-    </button>
   );
 }
 
@@ -600,17 +471,10 @@ const maxOriginalPhotoBytes = 12 * 1024 * 1024;
 const maxStoredPhotoBytes = 2.8 * 1024 * 1024;
 const maxPhotoWidth = 1200;
 
-// MVP temporary implementation: store a resized data URL in localStorage.
-// Later this function should upload the file to Supabase Storage and return a public URL.
+// MVP: local data URL in localStorage. Later replace this with Supabase Storage upload.
 async function prepareProductImage(file: File) {
-  if (!supportedPhotoTypes.has(file.type)) {
-    throw new Error("Выберите изображение JPG, PNG или WEBP");
-  }
-
-  if (file.size > maxOriginalPhotoBytes) {
-    throw new Error("Фото слишком большое. Выберите файл до 12 МБ");
-  }
-
+  if (!supportedPhotoTypes.has(file.type)) throw new Error("Выберите изображение JPG, PNG или WEBP");
+  if (file.size > maxOriginalPhotoBytes) throw new Error("Фото слишком большое. Выберите файл до 12 МБ");
   const image = await loadImage(file);
   const scale = Math.min(1, maxPhotoWidth / image.naturalWidth);
   const width = Math.max(1, Math.round(image.naturalWidth * scale));
@@ -618,29 +482,16 @@ async function prepareProductImage(file: File) {
   const canvas = document.createElement("canvas");
   canvas.width = width;
   canvas.height = height;
-
   const context = canvas.getContext("2d");
-
   if (!context) {
     URL.revokeObjectURL(image.src);
     throw new Error("Не удалось обработать фото");
   }
-
   context.drawImage(image, 0, 0, width, height);
   URL.revokeObjectURL(image.src);
-
-  const blob =
-    (await canvasToBlob(canvas, "image/webp", 0.82)) ??
-    (await canvasToBlob(canvas, "image/jpeg", 0.84));
-
-  if (!blob) {
-    throw new Error("Не удалось сохранить фото");
-  }
-
-  if (blob.size > maxStoredPhotoBytes) {
-    throw new Error("Фото слишком большое после сжатия. Выберите другое изображение");
-  }
-
+  const blob = (await canvasToBlob(canvas, "image/webp", 0.82)) ?? (await canvasToBlob(canvas, "image/jpeg", 0.84));
+  if (!blob) throw new Error("Не удалось сохранить фото");
+  if (blob.size > maxStoredPhotoBytes) throw new Error("Фото слишком большое после сжатия. Выберите другое изображение");
   return blobToDataUrl(blob);
 }
 
@@ -648,7 +499,6 @@ function loadImage(file: File) {
   return new Promise<HTMLImageElement>((resolve, reject) => {
     const image = new Image();
     const objectUrl = URL.createObjectURL(file);
-
     image.onload = () => resolve(image);
     image.onerror = () => {
       URL.revokeObjectURL(objectUrl);
@@ -659,15 +509,12 @@ function loadImage(file: File) {
 }
 
 function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality: number) {
-  return new Promise<Blob | null>((resolve) => {
-    canvas.toBlob(resolve, type, quality);
-  });
+  return new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, type, quality));
 }
 
 function blobToDataUrl(blob: Blob) {
   return new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
-
     reader.onload = () => resolve(String(reader.result));
     reader.onerror = () => reject(new Error("Не удалось сохранить фото"));
     reader.readAsDataURL(blob);
