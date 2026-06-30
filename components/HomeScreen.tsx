@@ -13,7 +13,6 @@ import { OrderSuccessModal } from "@/components/OrderSuccessModal";
 import { ProductConfigurator } from "@/components/ProductConfigurator";
 import { ProductCard } from "@/components/ProductCard";
 import type { Product } from "@/components/ProductCard";
-import { RepeatOrderCard } from "@/components/RepeatOrderCard";
 import { SearchBar } from "@/components/SearchBar";
 import { SectionTitle } from "@/components/SectionTitle";
 import {
@@ -25,35 +24,52 @@ import {
 } from "@/lib/menuStore";
 import { createOrder, useOrder } from "@/lib/orderStore";
 
-type HomeScreenProps = {
-  hasRepeatOrder: boolean;
-};
-
-export function HomeScreen({ hasRepeatOrder }: HomeScreenProps) {
+export function HomeScreen() {
   const menu = useMenu();
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [activeOrderId, setActiveOrderId] = useState<string | null>(null);
+  const [activeCategoryId, setActiveCategoryId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [greeting, setGreeting] = useState("Добро пожаловать!");
   const activeOrder = useOrder(activeOrderId);
+  const activeCategories = useMemo(
+    () =>
+      [...menu.categories]
+        .filter((category) => category.isActive)
+        .sort((a, b) => a.sortOrder - b.sortOrder),
+    [menu.categories],
+  );
   const categories = useMemo(() => {
-    const activeCategories = menu.categories.filter(
-      (category) => category.isActive,
-    );
-
-    return activeCategories.map((category, index) => ({
+    return activeCategories.map((category) => ({
+      id: category.id,
       name: category.name,
       icon: category.icon,
-      active: index === 0,
+      active: category.id === activeCategoryId,
     }));
-  }, [menu.categories]);
+  }, [activeCategories, activeCategoryId]);
 
   const products = useMemo(
     () =>
       menu.menuItems.filter((product) => isMenuItemOrderable(menu, product)),
     [menu],
   );
+  const normalizedSearchQuery = normalizeSearch(searchQuery);
+  const visibleProducts = useMemo(() => {
+    const categoryProducts = activeCategoryId
+      ? products.filter((product) => product.categoryId === activeCategoryId)
+      : products;
+
+    if (!normalizedSearchQuery) return categoryProducts;
+
+    return categoryProducts.filter((product) =>
+      [product.name, product.description].some((value) =>
+        hasWordStartingWith(value, normalizedSearchQuery),
+      ),
+    );
+  }, [activeCategoryId, normalizedSearchQuery, products]);
 
   useEffect(() => {
     const savedOrderId = localStorage.getItem("kafema-active-order-id");
@@ -62,6 +78,24 @@ export function HomeScreen({ hasRepeatOrder }: HomeScreenProps) {
       setActiveOrderId(savedOrderId);
     }
   }, []);
+
+  useEffect(() => {
+    setGreeting(getVladivostokGreeting());
+  }, []);
+
+  useEffect(() => {
+    if (!activeCategories.length) {
+      setActiveCategoryId(null);
+      return;
+    }
+
+    if (
+      activeCategoryId &&
+      !activeCategories.some((category) => category.id === activeCategoryId)
+    ) {
+      setActiveCategoryId(null);
+    }
+  }, [activeCategories, activeCategoryId]);
 
   const cartCount = useMemo(
     () => cartItems.reduce((sum, item) => sum + item.quantity, 0),
@@ -181,7 +215,7 @@ export function HomeScreen({ hasRepeatOrder }: HomeScreenProps) {
 
           <section className="mt-8">
             <h1 className="text-[28px] font-bold leading-tight text-[#1A1A1A]">
-              Доброе утро, Денис! ☀️
+              {greeting}
             </h1>
             <p className="mt-2 text-base leading-6 text-[#777777]">
               Что будем пить сегодня?
@@ -189,18 +223,10 @@ export function HomeScreen({ hasRepeatOrder }: HomeScreenProps) {
           </section>
 
           <div className="mt-6">
-            <SearchBar />
+            <SearchBar value={searchQuery} onChange={setSearchQuery} />
           </div>
 
-          <section className="mt-6">
-            {hasRepeatOrder ? (
-              <RepeatOrderCard />
-            ) : (
-              <EmptyState text="Ваш любимый заказ появится здесь после первого предзаказа." />
-            )}
-          </section>
-
-          <section className="mt-8">
+          <section className="mt-7">
             <div className="flex gap-3 overflow-x-auto pb-3 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               {categories.map((category) => (
                 <CategoryCard
@@ -208,6 +234,11 @@ export function HomeScreen({ hasRepeatOrder }: HomeScreenProps) {
                   icon={category.icon}
                   name={category.name}
                   active={category.active}
+                  onClick={() =>
+                    setActiveCategoryId((currentCategoryId) =>
+                      currentCategoryId === category.id ? null : category.id,
+                    )
+                  }
                 />
               ))}
             </div>
@@ -220,8 +251,8 @@ export function HomeScreen({ hasRepeatOrder }: HomeScreenProps) {
             />
 
             <div className="mt-5 grid grid-cols-2 gap-4">
-              {products.length > 0 ? (
-                products.map((product) => (
+              {visibleProducts.length > 0 ? (
+                visibleProducts.map((product) => (
                   <ProductCard
                     key={product.id}
                     product={product}
@@ -230,7 +261,13 @@ export function HomeScreen({ hasRepeatOrder }: HomeScreenProps) {
                 ))
               ) : (
                 <div className="col-span-2">
-                  <EmptyState text="Пока в меню нет доступных товаров." />
+                  <EmptyState
+                    text={
+                      normalizedSearchQuery
+                        ? "Ничего не найдено"
+                        : "Пока в меню нет доступных товаров."
+                    }
+                  />
                 </div>
               )}
             </div>
@@ -298,4 +335,33 @@ function createCartItemId(productId: string, selection: MenuSelection) {
     variantId: selection.variantId ?? "",
     addonPairs,
   });
+}
+
+function getVladivostokGreeting(date = new Date()) {
+  const hourPart = new Intl.DateTimeFormat("ru-RU", {
+    hour: "2-digit",
+    hour12: false,
+    hourCycle: "h23",
+    timeZone: "Asia/Vladivostok",
+  })
+    .formatToParts(date)
+    .find((part) => part.type === "hour")?.value;
+  const hour = Number(hourPart ?? 0);
+
+  if (hour >= 5 && hour < 12) return "Доброе утро! ☀️";
+  if (hour >= 12 && hour < 18) return "Добрый день! ☀️";
+  if (hour >= 18) return "Добрый вечер! 🌙";
+  return "Доброй ночи! 🌙";
+}
+
+function normalizeSearch(value: string) {
+  return value.trim().toLowerCase();
+}
+
+function hasWordStartingWith(value: string, query: string) {
+  if (!query) return true;
+  return normalizeSearch(value)
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter(Boolean)
+    .some((word) => word.startsWith(query));
 }
