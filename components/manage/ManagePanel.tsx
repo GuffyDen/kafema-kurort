@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   createIikoSyncSummary,
   iikoReadOnlyRequests,
@@ -42,6 +42,19 @@ type GeneralSettings = {
   contacts: string;
 };
 
+type IikoWebhookStatus = {
+  status: string;
+  message: string;
+  webhookUrl: string;
+  tokenConfigured: boolean;
+  warning: string | null;
+  lastWebhookReceivedAt: string | null;
+  lastEventType: string | null;
+  lastOrderId: string | null;
+  lastOrderStatus: string | null;
+  lastError: string | null;
+};
+
 const navItems: Array<{ id: AdminSection; label: string; hint: string }> = [
   { id: "connections", label: "Подключения", hint: "iiko и платежи" },
   { id: "storefront", label: "Витрина", hint: "Отображение меню" },
@@ -58,6 +71,7 @@ export function ManagePanel() {
   const [isCheckingIiko, setIsCheckingIiko] = useState(false);
   const [iikoResult, setIikoResult] = useState<IikoConnectionResult | null>(null);
   const [iikoError, setIikoError] = useState("");
+  const [webhookStatus, setWebhookStatus] = useState<IikoWebhookStatus | null>(null);
   const [showEnvModeWarning, setShowEnvModeWarning] = useState(false);
   const [selectedOrganizationId, setSelectedOrganizationId] = useState("");
   const [lastSyncAt, setLastSyncAt] = useState("");
@@ -91,6 +105,30 @@ export function ManagePanel() {
   }, [iikoResult, selectedOrganizationId]);
 
   const syncSummary = useMemo(() => createIikoSyncSummary(menu), [menu]);
+
+  useEffect(() => {
+    void refreshWebhookStatus();
+  }, []);
+
+  async function refreshWebhookStatus() {
+    try {
+      const response = await fetch("/api/iiko/webhook", { cache: "no-store" });
+      setWebhookStatus((await response.json()) as IikoWebhookStatus);
+    } catch {
+      setWebhookStatus({
+        status: "error",
+        message: "Не удалось получить статус webhook",
+        webhookUrl: "https://kafema-kurort.vercel.app/api/iiko/webhook",
+        tokenConfigured: false,
+        warning: null,
+        lastWebhookReceivedAt: null,
+        lastEventType: null,
+        lastOrderId: null,
+        lastOrderStatus: null,
+        lastError: "Не удалось получить статус webhook",
+      });
+    }
+  }
 
   async function checkIikoConnection() {
     setIsCheckingIiko(true);
@@ -223,7 +261,9 @@ export function ManagePanel() {
               selectedOrganizationId={selectedOrganizationId}
               showEnvModeWarning={showEnvModeWarning}
               setSelectedOrganizationId={setSelectedOrganizationId}
+              webhookStatus={webhookStatus}
               onCheckIiko={checkIikoConnection}
+              onRefreshWebhook={refreshWebhookStatus}
               onSyncMenu={syncMenuAgain}
             />
           ) : null}
@@ -269,8 +309,10 @@ function ConnectionsSection({
   selectedOrganization,
   selectedOrganizationId,
   showEnvModeWarning,
+  webhookStatus,
   setSelectedOrganizationId,
   onCheckIiko,
+  onRefreshWebhook,
   onSyncMenu,
 }: {
   iikoError: string;
@@ -280,8 +322,10 @@ function ConnectionsSection({
   selectedOrganization: IikoOrganization | null;
   selectedOrganizationId: string;
   showEnvModeWarning: boolean;
+  webhookStatus: IikoWebhookStatus | null;
   setSelectedOrganizationId: (value: string) => void;
   onCheckIiko: () => void;
+  onRefreshWebhook: () => void;
   onSyncMenu: () => void;
 }) {
   return (
@@ -401,7 +445,79 @@ function ConnectionsSection({
           </SecondaryButton>
         </div>
       </Card>
+
+      <WebhookCard
+        status={webhookStatus}
+        onRefresh={onRefreshWebhook}
+      />
     </div>
+  );
+}
+
+function WebhookCard({
+  onRefresh,
+  status,
+}: {
+  onRefresh: () => void;
+  status: IikoWebhookStatus | null;
+}) {
+  const webhookUrl =
+    status?.webhookUrl ?? "https://kafema-kurort.vercel.app/api/iiko/webhook";
+  const curlExample = `curl -X POST ${webhookUrl} \\
+  -H "Content-Type: application/json" \\
+  -H "X-Iiko-Webhook-Token: <token>" \\
+  -d '{"eventType":"OrderUpdated","orderId":"demo-order","status":"NEW"}'`;
+
+  return (
+    <Card>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h2 className="text-2xl font-black">Webhook</h2>
+          <p className="mt-1 text-sm leading-6 text-[#777777]">
+            Входящий endpoint для событий iiko. События принимаются локально и
+            сохраняются в mock-хранилище для будущей BaristaQueue.
+          </p>
+        </div>
+        <span className="rounded-full bg-emerald-50 px-3 py-1.5 text-sm font-black text-emerald-700">
+          ready
+        </span>
+      </div>
+
+      <div className="mt-5 space-y-4">
+        <div className="rounded-3xl bg-[#F7F7F7] p-4">
+          <p className="text-sm font-bold text-[#777777]">Webhook URL</p>
+          <p className="mt-2 break-all font-mono text-sm font-black">
+            {webhookUrl}
+          </p>
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-2">
+          <Info label="Статус" value={status?.message ?? "Загружается"} />
+          <Info
+            label="Token"
+            value={status?.tokenConfigured ? "configured" : "not configured"}
+          />
+          <Info
+            label="Last webhook"
+            value={status?.lastWebhookReceivedAt ?? "Еще не получен"}
+          />
+          <Info label="Last event type" value={status?.lastEventType ?? "Нет"} />
+          <Info label="Last orderId" value={status?.lastOrderId ?? "Нет"} />
+          <Info label="Last status" value={status?.lastOrderStatus ?? "Нет"} />
+          <Info label="Last error" value={status?.lastError ?? "Нет"} />
+          <Info label="Warning" value={status?.warning ?? "Нет"} />
+        </div>
+
+        <div className="rounded-3xl border border-[#E6E6E6] bg-[#F7F7F7] p-4">
+          <p className="text-sm font-bold text-[#777777]">Пример curl</p>
+          <pre className="mt-3 overflow-x-auto whitespace-pre-wrap break-words text-xs font-bold leading-6 text-[#1A1A1A]">
+            {curlExample}
+          </pre>
+        </div>
+
+        <SecondaryButton onClick={onRefresh}>Обновить статус webhook</SecondaryButton>
+      </div>
+    </Card>
   );
 }
 

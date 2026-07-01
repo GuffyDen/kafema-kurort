@@ -126,20 +126,9 @@ async function getAccessToken(config: IikoClientConfig) {
 }
 
 async function requestAccessToken(config: IikoClientConfig) {
-  try {
-    return await requestIiko<{ token?: string }>(config, "/access_token", {
-      apiLogin: config.apiLogin,
-      apiKey: config.apiKey,
-    });
-  } catch (error) {
-    if (!isIikoStatusError(error, 401)) {
-      throw error;
-    }
-
-    return requestIiko<{ token?: string }>(config, "/access_token", {
-      apiLogin: config.apiKey,
-    });
-  }
+  return requestIiko<{ token?: string }>(config, "/access_token", {
+    apiLogin: config.apiKey,
+  });
 }
 
 async function getOrganizations(config: IikoClientConfig, token: string) {
@@ -243,10 +232,6 @@ class IikoHttpError extends Error {
   ) {
     super(`iiko вернула ошибку ${status} для ${endpoint}`);
   }
-}
-
-function isIikoStatusError(error: unknown, status: number) {
-  return error instanceof IikoHttpError && error.status === status;
 }
 
 function assertEndpointAllowed(endpoint: string) {
