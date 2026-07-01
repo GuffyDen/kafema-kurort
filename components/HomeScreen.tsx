@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
+import { BackgroundDecor } from "@/components/BackgroundDecor";
 import { BottomNavigation } from "@/components/BottomNavigation";
 import { CartBar } from "@/components/CartBar";
 import { CartModal } from "@/components/CartModal";
@@ -30,10 +31,12 @@ export function HomeScreen() {
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
-  const [activeOrderId, setActiveOrderId] = useState<string | null>(null);
+  const [activeOrderId, setActiveOrderId] = useState<string | null>(() =>
+    getStoredActiveOrderId(),
+  );
   const [activeCategoryId, setActiveCategoryId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [greeting, setGreeting] = useState("Добро пожаловать!");
+  const [greeting] = useState(() => getVladivostokGreeting());
   const activeOrder = useOrder(activeOrderId);
   const activeCategories = useMemo(
     () =>
@@ -42,14 +45,20 @@ export function HomeScreen() {
         .sort((a, b) => a.sortOrder - b.sortOrder),
     [menu.categories],
   );
+  const visibleActiveCategoryId = useMemo(() => {
+    if (!activeCategoryId) return null;
+    return activeCategories.some((category) => category.id === activeCategoryId)
+      ? activeCategoryId
+      : null;
+  }, [activeCategories, activeCategoryId]);
   const categories = useMemo(() => {
     return activeCategories.map((category) => ({
       id: category.id,
       name: category.name,
       icon: category.icon,
-      active: category.id === activeCategoryId,
+      active: category.id === visibleActiveCategoryId,
     }));
-  }, [activeCategories, activeCategoryId]);
+  }, [activeCategories, visibleActiveCategoryId]);
 
   const products = useMemo(
     () =>
@@ -58,8 +67,8 @@ export function HomeScreen() {
   );
   const normalizedSearchQuery = normalizeSearch(searchQuery);
   const visibleProducts = useMemo(() => {
-    const categoryProducts = activeCategoryId
-      ? products.filter((product) => product.categoryId === activeCategoryId)
+    const categoryProducts = visibleActiveCategoryId
+      ? products.filter((product) => product.categoryId === visibleActiveCategoryId)
       : products;
 
     if (!normalizedSearchQuery) return categoryProducts;
@@ -69,33 +78,7 @@ export function HomeScreen() {
         hasWordStartingWith(value, normalizedSearchQuery),
       ),
     );
-  }, [activeCategoryId, normalizedSearchQuery, products]);
-
-  useEffect(() => {
-    const savedOrderId = localStorage.getItem("kafema-active-order-id");
-
-    if (savedOrderId) {
-      setActiveOrderId(savedOrderId);
-    }
-  }, []);
-
-  useEffect(() => {
-    setGreeting(getVladivostokGreeting());
-  }, []);
-
-  useEffect(() => {
-    if (!activeCategories.length) {
-      setActiveCategoryId(null);
-      return;
-    }
-
-    if (
-      activeCategoryId &&
-      !activeCategories.some((category) => category.id === activeCategoryId)
-    ) {
-      setActiveCategoryId(null);
-    }
-  }, [activeCategories, activeCategoryId]);
+  }, [normalizedSearchQuery, products, visibleActiveCategoryId]);
 
   const cartCount = useMemo(
     () => cartItems.reduce((sum, item) => sum + item.quantity, 0),
@@ -207,17 +190,27 @@ export function HomeScreen() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
+  if (activeOrder) {
+    return (
+      <OrderSuccessModal
+        order={activeOrder}
+        onBackToMenu={returnToMenu}
+      />
+    );
+  }
+
   return (
     <>
-      <main className="min-h-screen overflow-x-hidden bg-[#F7F7F7] text-[#1A1A1A]">
-        <div className="mx-auto min-h-screen w-full max-w-md px-4 pb-44 pt-5">
+      <main className="relative min-h-screen overflow-x-hidden bg-[var(--color-bg-cream)] text-[var(--color-text-main)]">
+        <BackgroundDecor />
+        <div className="relative z-10 mx-auto min-h-screen w-full max-w-md px-4 pb-44 pt-5">
           <Header />
 
           <section className="mt-8">
-            <h1 className="text-[28px] font-bold leading-tight text-[#1A1A1A]">
+            <h1 className="text-[30px] font-black leading-tight text-[var(--color-text-main)]">
               {greeting}
             </h1>
-            <p className="mt-2 text-base leading-6 text-[#777777]">
+            <p className="mt-2 text-base leading-6 text-[var(--color-text-muted)]">
               Что будем пить сегодня?
             </p>
           </section>
@@ -247,7 +240,7 @@ export function HomeScreen() {
           <section className="mt-7">
             <SectionTitle
               title="Популярное"
-              subtitle="Большие карточки, любимые напитки и свежие десерты"
+              subtitle="Любимые позиции в мягком кофейном настроении"
             />
 
             <div className="mt-5 grid grid-cols-2 gap-4">
@@ -308,17 +301,11 @@ export function HomeScreen() {
 
       {selectedProduct ? (
         <ProductConfigurator
+          key={selectedProduct.id}
           product={selectedProduct}
           menu={menu}
           onClose={() => setSelectedProduct(null)}
           onAdd={addConfiguredItem}
-        />
-      ) : null}
-
-      {activeOrder ? (
-        <OrderSuccessModal
-          order={activeOrder}
-          onBackToMenu={returnToMenu}
         />
       ) : null}
     </>
@@ -335,6 +322,11 @@ function createCartItemId(productId: string, selection: MenuSelection) {
     variantId: selection.variantId ?? "",
     addonPairs,
   });
+}
+
+function getStoredActiveOrderId() {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem("kafema-active-order-id");
 }
 
 function getVladivostokGreeting(date = new Date()) {

@@ -33,7 +33,7 @@ export function CartBar({ itemsCount, total, onOpen }: CartBarProps) {
     >
       <button
         type="button"
-        className="mx-auto flex h-16 w-full max-w-md items-center justify-between rounded-[24px] bg-[#E30613] px-5 text-white shadow-[0_20px_46px_rgba(227,6,19,0.28)] transition duration-300 hover:bg-[#C90511] active:scale-[0.99]"
+        className="mx-auto flex h-16 w-full max-w-md items-center justify-between rounded-[28px] bg-[var(--color-caramel)] px-5 text-white shadow-[0_20px_46px_rgba(189,134,73,0.28)] transition duration-300 hover:bg-[#A86F34] active:scale-[0.99]"
         onClick={onOpen}
       >
         <span className="text-base font-semibold">

@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
+import { BackgroundDecor } from "@/components/BackgroundDecor";
 import type { Product } from "@/components/ProductCard";
 import {
   configureMenuItem,
@@ -40,10 +41,6 @@ export function ProductConfigurator({
   );
   const canAdd = isMenuSelectionComplete(menu, product, selection);
 
-  useEffect(() => {
-    setSelection(getDefaultMenuSelection(menu, product));
-  }, [menu, product]);
-
   function selectVariant(variantId: string) {
     setSelection((current) => ({ ...current, variantId }));
   }
@@ -76,19 +73,20 @@ export function ProductConfigurator({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center bg-[#F7F7F7] px-4 py-8">
-      <div className="mx-auto flex max-h-full w-full max-w-md flex-col overflow-hidden rounded-[32px] bg-white shadow-[0_24px_56px_rgba(119,119,119,0.22)]">
-        <div className="flex items-start justify-between gap-4 border-b border-[#EFEFEF] px-5 py-5">
+    <div className="fixed inset-0 z-50 flex items-center overflow-hidden bg-[#F5EEE3]/95 px-4 py-8 backdrop-blur">
+      <BackgroundDecor />
+      <div className="relative z-10 mx-auto flex max-h-full w-full max-w-md flex-col overflow-hidden rounded-[var(--radius-xxl)] bg-[var(--color-card)] shadow-[var(--shadow-soft)]">
+        <div className="flex items-start justify-between gap-4 border-b border-[#E8D9C8] px-5 py-5">
           <div>
-            <p className="text-sm font-semibold text-[#777777]">Настройка</p>
-            <h2 className="mt-1 text-2xl font-bold text-[#1A1A1A]">
+            <p className="text-sm font-bold uppercase tracking-[0.18em] text-[var(--color-caramel)]">Настройка</p>
+            <h2 className="mt-1 text-2xl font-black text-[var(--color-text-main)]">
               {product.name}
             </h2>
-            <p className="mt-1 text-sm text-[#777777]">{product.description}</p>
+            <p className="mt-1 text-sm text-[var(--color-text-muted)]">{product.description}</p>
           </div>
           <button
             type="button"
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white text-2xl leading-none text-[#1A1A1A] shadow-[0_8px_18px_rgba(119,119,119,0.14)] transition duration-300 hover:bg-[#F7F7F7] active:scale-95"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#FFF7EA] text-2xl leading-none text-[var(--color-text-main)] shadow-[0_8px_18px_rgba(73,52,36,0.10)] transition duration-300 hover:text-[var(--color-caramel)] active:scale-95"
             onClick={onClose}
             aria-label="Закрыть настройку товара"
           >
@@ -99,11 +97,11 @@ export function ProductConfigurator({
         <div className="flex-1 space-y-5 overflow-y-auto px-5 py-5">
           {variants.length > 0 ? (
             <section>
-              <h3 className="text-base font-bold text-[#1A1A1A]">Вариант</h3>
+              <h3 className="text-base font-black text-[var(--color-text-main)]">Вариант</h3>
               <div className="mt-3 space-y-2">
                 {variants.map((variant) => (
                   <label
-                    className="flex min-h-12 items-center justify-between gap-3 rounded-[18px] border border-[#EFEFEF] px-4 py-3"
+                    className="flex min-h-12 items-center justify-between gap-3 rounded-[22px] border border-[#E8D9C8] bg-[#FFFDF8] px-4 py-3"
                     key={variant.id}
                   >
                     <span className="flex items-center gap-3">
@@ -113,12 +111,12 @@ export function ProductConfigurator({
                         checked={selection.variantId === variant.id}
                         onChange={() => selectVariant(variant.id)}
                       />
-                      <span className="font-semibold text-[#1A1A1A]">
+                      <span className="font-semibold text-[var(--color-text-main)]">
                         {variant.name}
                       </span>
                     </span>
                     {variant.priceDelta > 0 ? (
-                      <span className="text-sm font-bold text-[#777777]">
+                      <span className="text-sm font-bold text-[var(--color-text-muted)]">
                         +{variant.priceDelta.toLocaleString("ru-RU")} ₽
                       </span>
                     ) : null}
@@ -133,17 +131,17 @@ export function ProductConfigurator({
             return (
               <section key={group.id}>
                 <div className="flex items-center justify-between gap-3">
-                  <h3 className="text-base font-bold text-[#1A1A1A]">
+                  <h3 className="text-base font-black text-[var(--color-text-main)]">
                     {group.icon} {group.name}
                   </h3>
-                  <span className="text-xs font-semibold text-[#777777]">
+                  <span className="rounded-full bg-[#F2E7D9] px-3 py-1 text-xs font-bold text-[var(--color-text-muted)]">
                     {group.required ? "Обязательно" : "Необязательно"}
                   </span>
                 </div>
 
                 <div className="mt-3 space-y-2">
                   {!group.required && group.selectionType === "single" ? (
-                    <label className="flex min-h-12 items-center rounded-[18px] border border-[#EFEFEF] px-4 py-3">
+                    <label className="flex min-h-12 items-center rounded-[22px] border border-[#E8D9C8] bg-[#FFFDF8] px-4 py-3">
                       <span className="flex items-center gap-3">
                         <input
                           type="radio"
@@ -151,7 +149,7 @@ export function ProductConfigurator({
                           checked={selectedIds.length === 0}
                           onChange={() => selectSingleOption(group.id, null)}
                         />
-                        <span className="font-semibold text-[#777777]">
+                        <span className="font-semibold text-[var(--color-text-muted)]">
                           Без дополнения
                         </span>
                       </span>
@@ -165,7 +163,7 @@ export function ProductConfigurator({
 
                     return (
                       <label
-                        className="flex min-h-12 items-center justify-between gap-3 rounded-[18px] border border-[#EFEFEF] px-4 py-3"
+                        className="flex min-h-12 items-center justify-between gap-3 rounded-[22px] border border-[#E8D9C8] bg-[#FFFDF8] px-4 py-3"
                         key={option.id}
                       >
                         <span className="flex items-center gap-3">
@@ -179,12 +177,12 @@ export function ProductConfigurator({
                                 : selectSingleOption(group.id, option.id)
                             }
                           />
-                          <span className="font-semibold text-[#1A1A1A]">
+                          <span className="font-semibold text-[var(--color-text-main)]">
                             {option.name}
                           </span>
                         </span>
                         {option.priceDelta > 0 ? (
-                          <span className="text-sm font-bold text-[#777777]">
+                          <span className="text-sm font-bold text-[var(--color-text-muted)]">
                             +{option.priceDelta.toLocaleString("ru-RU")} ₽
                           </span>
                         ) : null}
@@ -197,10 +195,10 @@ export function ProductConfigurator({
           })}
         </div>
 
-        <div className="border-t border-[#EFEFEF] bg-white px-5 pb-5 pt-4">
+        <div className="border-t border-[#E8D9C8] bg-[var(--color-card)] px-5 pb-5 pt-4">
           <button
             type="button"
-            className="h-[60px] w-full rounded-[24px] bg-[#E30613] px-5 text-base font-bold text-white shadow-[0_18px_34px_rgba(227,6,19,0.24)] transition duration-300 hover:bg-[#C90511] active:scale-[0.99] disabled:cursor-not-allowed disabled:bg-[#EFEFEF] disabled:text-[#777777] disabled:shadow-none"
+            className="h-[60px] w-full rounded-[28px] bg-[var(--color-caramel)] px-5 text-base font-black text-white shadow-[0_18px_34px_rgba(189,134,73,0.26)] transition duration-300 hover:bg-[#A86F34] active:scale-[0.99] disabled:cursor-not-allowed disabled:bg-[#E8D9C8] disabled:text-[var(--color-text-muted)] disabled:shadow-none"
             disabled={!canAdd}
             onClick={() => onAdd(configuredItem, selection)}
           >
