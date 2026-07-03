@@ -48,11 +48,16 @@ type IikoWebhookStatus = {
   webhookUrl: string;
   tokenConfigured: boolean;
   warning: string | null;
+  totalReceived: number;
   lastWebhookReceivedAt: string | null;
   lastEventType: string | null;
   lastOrderId: string | null;
   lastOrderStatus: string | null;
+  lastHttpStatus: string | null;
+  lastClientIp: string | null;
   lastError: string | null;
+  lastPayload: unknown | null;
+  lastMessage: unknown | null;
 };
 
 const navItems: Array<{ id: AdminSection; label: string; hint: string }> = [
@@ -112,7 +117,7 @@ export function ManagePanel() {
 
   async function refreshWebhookStatus() {
     try {
-      const response = await fetch("/api/iiko/webhook", { cache: "no-store" });
+      const response = await fetch("/api/iiko/webhook-monitor", { cache: "no-store" });
       setWebhookStatus((await response.json()) as IikoWebhookStatus);
     } catch {
       setWebhookStatus({
@@ -121,12 +126,43 @@ export function ManagePanel() {
         webhookUrl: "https://kafema-kurort.vercel.app/api/iiko/webhook",
         tokenConfigured: false,
         warning: null,
+        totalReceived: 0,
         lastWebhookReceivedAt: null,
         lastEventType: null,
         lastOrderId: null,
         lastOrderStatus: null,
+        lastHttpStatus: null,
+        lastClientIp: null,
         lastError: "Не удалось получить статус событий iiko",
+        lastPayload: null,
+        lastMessage: null,
       });
+    }
+  }
+
+  async function clearWebhookJournal() {
+    try {
+      await fetch("/api/iiko/webhook-monitor", { method: "DELETE" });
+      await refreshWebhookStatus();
+    } catch {
+      setWebhookStatus((current) => ({
+        status: current?.status ?? "error",
+        message: current?.message ?? "Не удалось очистить журнал iiko",
+        webhookUrl:
+          current?.webhookUrl ?? "https://kafema-kurort.vercel.app/api/iiko/webhook",
+        tokenConfigured: current?.tokenConfigured ?? false,
+        warning: current?.warning ?? null,
+        totalReceived: current?.totalReceived ?? 0,
+        lastWebhookReceivedAt: current?.lastWebhookReceivedAt ?? null,
+        lastEventType: current?.lastEventType ?? null,
+        lastOrderId: current?.lastOrderId ?? null,
+        lastOrderStatus: current?.lastOrderStatus ?? null,
+        lastHttpStatus: current?.lastHttpStatus ?? null,
+        lastClientIp: current?.lastClientIp ?? null,
+        lastPayload: current?.lastPayload ?? null,
+        lastMessage: current?.lastMessage ?? null,
+        lastError: "Не удалось очистить журнал iiko",
+      }));
     }
   }
 
@@ -263,6 +299,7 @@ export function ManagePanel() {
               setSelectedOrganizationId={setSelectedOrganizationId}
               webhookStatus={webhookStatus}
               onCheckIiko={checkIikoConnection}
+              onClearWebhook={clearWebhookJournal}
               onRefreshWebhook={refreshWebhookStatus}
               onSyncMenu={syncMenuAgain}
             />
@@ -312,6 +349,7 @@ function ConnectionsSection({
   webhookStatus,
   setSelectedOrganizationId,
   onCheckIiko,
+  onClearWebhook,
   onRefreshWebhook,
   onSyncMenu,
 }: {
@@ -325,6 +363,7 @@ function ConnectionsSection({
   webhookStatus: IikoWebhookStatus | null;
   setSelectedOrganizationId: (value: string) => void;
   onCheckIiko: () => void;
+  onClearWebhook: () => void;
   onRefreshWebhook: () => void;
   onSyncMenu: () => void;
 }) {
@@ -369,8 +408,10 @@ function ConnectionsSection({
             />
             {showEnvModeWarning ? (
               <p className="rounded-2xl bg-[#FFF4D7] px-4 py-3 text-sm font-bold text-[#8A6500]">
-                В MVP ключи подключаются через серверный .env.local. Безопасное
-                хранение ключей в админке будет добавлено позже.
+                Ключи и токены подключаются через серверные переменные
+                окружения. На Vercel они задаются в Settings → Environment
+                Variables. Безопасное хранение ключей в админке будет добавлено
+                позже.
               </p>
             ) : null}
             {iikoError ? (
@@ -448,6 +489,7 @@ function ConnectionsSection({
 
       <WebhookCard
         status={webhookStatus}
+        onClear={onClearWebhook}
         onRefresh={onRefreshWebhook}
       />
     </div>
@@ -455,46 +497,76 @@ function ConnectionsSection({
 }
 
 function WebhookCard({
+  onClear,
   onRefresh,
   status,
 }: {
+  onClear: () => void;
   onRefresh: () => void;
   status: IikoWebhookStatus | null;
 }) {
+  const [showPayload, setShowPayload] = useState(false);
   const webhookUrl =
     status?.webhookUrl ?? "https://kafema-kurort.vercel.app/api/iiko/webhook";
   const curlExample = `curl -X POST ${webhookUrl} \\
   -H "Content-Type: application/json" \\
   -H "X-Iiko-Webhook-Token: <token>" \\
   -d '{"eventType":"OrderUpdated","orderId":"demo-order","status":"NEW"}'`;
+  const totalReceived = status?.totalReceived ?? 0;
+  const hasMessages = totalReceived > 0;
+  const payloadForViewer = status?.lastPayload ?? status?.lastMessage ?? null;
 
   return (
     <Card>
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-black">События iiko</h2>
+          <h2 className="text-2xl font-black">Монитор iiko</h2>
           <p className="mt-1 text-sm leading-6 text-[#777777]">
-            Прием событий от iiko для будущей очереди бариста.
+            Диагностика входящих событий от iiko.
           </p>
         </div>
         <span className="rounded-full bg-emerald-50 px-3 py-1.5 text-sm font-black text-emerald-700">
-          Готово
+          🟢 Готов
         </span>
       </div>
 
       <div className="mt-5 space-y-4">
+        <div className="rounded-3xl bg-[#F7F7F7] p-4">
+          <p className="text-sm font-bold text-[#777777]">Статус подключения</p>
+          <p className="mt-2 text-xl font-black text-emerald-700">
+            🟢 {formatIikoEventStatus(status?.message)}
+          </p>
+          {hasMessages ? (
+            <p className="mt-2 text-sm font-bold text-[#777777]">
+              Последнее сообщение:{" "}
+              <span className="text-[#1A1A1A]">
+                {formatWebhookDate(status?.lastWebhookReceivedAt)}
+              </span>
+            </p>
+          ) : (
+            <div className="mt-4 rounded-[28px] border border-dashed border-[#DADADA] bg-white p-5">
+              <p className="text-lg font-black">Сообщений от iiko пока нет</p>
+              <p className="mt-2 text-sm leading-6 text-[#777777]">
+                Ожидаем первое сообщение от iiko. После подключения URI и
+                создания тестового заказа информация появится автоматически.
+              </p>
+            </div>
+          )}
+        </div>
+
         <div className="grid gap-3 md:grid-cols-2">
-          <Info label="Статус" value={formatIikoEventStatus(status?.message)} />
           <Info
             label="Защитный токен"
             value={status?.tokenConfigured ? "Настроен" : "Не настроен"}
           />
+          <Info label="Всего получено сообщений" value={String(totalReceived)} />
           <Info
-            label="Последнее событие"
-            value={status?.lastWebhookReceivedAt ?? "Еще не получен"}
+            label="Последний тип события"
+            value={status?.lastEventType ?? "Unknown"}
           />
-          <Info label="Тип события" value={status?.lastEventType ?? "Нет"} />
-          <Info label="Номер события" value={status?.lastOrderId ?? "Нет"} />
+          <Info label="Последний orderId" value={status?.lastOrderId ?? "Нет"} />
+          <Info label="Последний HTTP Status" value={status?.lastHttpStatus ?? "Нет"} />
+          <Info label="Последний IP клиента" value={status?.lastClientIp ?? "Нет"} />
           <Info label="Статус заказа" value={status?.lastOrderStatus ?? "Нет"} />
           <Info label="Последняя ошибка" value={status?.lastError ?? "Нет"} />
         </div>
@@ -520,8 +592,24 @@ function WebhookCard({
           </div>
         </details>
 
-        <SecondaryButton onClick={onRefresh}>Обновить статус</SecondaryButton>
+        <div className="flex flex-wrap gap-3">
+          <PrimaryButton
+            disabled={!payloadForViewer}
+            onClick={() => setShowPayload(true)}
+          >
+            Показать последнее сообщение
+          </PrimaryButton>
+          <SecondaryButton onClick={onClear}>Очистить журнал</SecondaryButton>
+          <SecondaryButton onClick={onRefresh}>Обновить статус</SecondaryButton>
+        </div>
       </div>
+
+      {showPayload ? (
+        <JsonViewerModal
+          payload={payloadForViewer}
+          onClose={() => setShowPayload(false)}
+        />
+      ) : null}
     </Card>
   );
 }
@@ -576,6 +664,45 @@ function ConnectedSummary({
   );
 }
 
+function JsonViewerModal({
+  onClose,
+  payload,
+}: {
+  onClose: () => void;
+  payload: unknown;
+}) {
+  const formattedPayload = useMemo(
+    () => JSON.stringify(payload ?? {}, null, 2),
+    [payload],
+  );
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#1A1A1A]/30 px-4 py-8 backdrop-blur-sm">
+      <div className="max-h-[86vh] w-full max-w-4xl overflow-hidden rounded-[32px] bg-white shadow-[0_28px_90px_rgba(26,26,26,0.22)]">
+        <div className="flex items-start justify-between gap-4 border-b border-[#E6E6E6] px-5 py-4">
+          <div>
+            <h3 className="text-2xl font-black">Последнее сообщение iiko</h3>
+            <p className="mt-1 text-sm font-bold text-[#777777]">
+              Полный payload без сокращений.
+            </p>
+          </div>
+          <button
+            type="button"
+            className="min-h-11 rounded-2xl bg-[#F7F7F7] px-4 font-black transition hover:bg-[#EFEFEF]"
+            onClick={onClose}
+          >
+            Закрыть
+          </button>
+        </div>
+
+        <pre className="max-h-[68vh] overflow-auto bg-[#111827] p-5 text-xs font-semibold leading-6 text-[#E5E7EB]">
+          {formattedPayload}
+        </pre>
+      </div>
+    </div>
+  );
+}
+
 function formatIikoEventStatus(message?: string) {
   if (!message) {
     return "Загружается";
@@ -586,6 +713,23 @@ function formatIikoEventStatus(message?: string) {
   }
 
   return message;
+}
+
+function formatWebhookDate(value?: string | null) {
+  if (!value) return "Нет";
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) return value;
+
+  return new Intl.DateTimeFormat("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).format(date);
 }
 
 function StorefrontSection({

@@ -13,10 +13,15 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  const clientIp = getClientIp(request);
   const auth = validateWebhookToken(request);
 
   if (!auth.ok) {
-    saveIikoWebhookError(auth.error);
+    saveIikoWebhookError(auth.error, {
+      httpStatus: 401,
+      httpStatusText: "Unauthorized",
+      clientIp,
+    });
 
     return Response.json(
       {
@@ -30,7 +35,11 @@ export async function POST(request: Request) {
   const payload = await readJsonPayload(request);
 
   if (!payload.ok) {
-    saveIikoWebhookError(payload.error);
+    saveIikoWebhookError(payload.error, {
+      httpStatus: 200,
+      httpStatusText: "OK",
+      clientIp,
+    });
 
     return Response.json({
       ok: true,
@@ -39,7 +48,11 @@ export async function POST(request: Request) {
     });
   }
 
-  const snapshot = saveIikoWebhookEvent(payload.data);
+  const snapshot = saveIikoWebhookEvent(payload.data, {
+    httpStatus: 200,
+    httpStatusText: "OK",
+    clientIp,
+  });
 
   console.info("iiko webhook received", {
     eventType: snapshot.eventType,
@@ -75,6 +88,11 @@ function createWebhookStatus() {
     lastEventType: state.lastEvent?.eventType ?? null,
     lastOrderId: state.lastEvent?.orderId ?? null,
     lastOrderStatus: state.lastEvent?.status ?? null,
+    lastHttpStatus: state.lastAttempt
+      ? formatHttpStatus(state.lastAttempt.httpStatus, state.lastAttempt.httpStatusText)
+      : null,
+    lastClientIp: state.lastAttempt?.clientIp ?? null,
+    totalReceived: state.totalReceived,
     lastError: state.lastError,
     ...(process.env.NODE_ENV !== "production" && state.lastEvent?.rawPayload
       ? { rawPayload: state.lastEvent.rawPayload }
@@ -120,4 +138,19 @@ async function readJsonPayload(request: Request) {
 
 function trimTrailingSlash(value: string) {
   return value.replace(/\/$/, "");
+}
+
+function getClientIp(request: Request) {
+  const forwardedFor = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
+
+  return (
+    forwardedFor ||
+    request.headers.get("x-real-ip") ||
+    request.headers.get("cf-connecting-ip") ||
+    null
+  );
+}
+
+function formatHttpStatus(status: number, statusText: string) {
+  return `${status}${statusText ? ` ${statusText}` : ""}`;
 }

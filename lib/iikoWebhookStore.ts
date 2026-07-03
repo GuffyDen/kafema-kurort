@@ -10,25 +10,49 @@ export type IikoWebhookSnapshot = {
   orderId: string | null;
   status: string | null;
   timestamp: string;
+  httpStatus: number;
+  httpStatusText: string;
+  clientIp: string | null;
   orderEvent: IikoWebhookOrderEvent | null;
-  rawPayload?: unknown;
+  rawPayload: unknown;
+};
+
+export type IikoWebhookAttempt = {
+  receivedAt: string;
+  httpStatus: number;
+  httpStatusText: string;
+  clientIp: string | null;
+  error: string | null;
 };
 
 export type IikoWebhookState = {
   lastEvent: IikoWebhookSnapshot | null;
   lastError: string | null;
+  lastAttempt: IikoWebhookAttempt | null;
+  totalReceived: number;
+  events: IikoWebhookSnapshot[];
 };
 
 const webhookState: IikoWebhookState = {
   lastEvent: null,
   lastError: null,
+  lastAttempt: null,
+  totalReceived: 0,
+  events: [],
 };
 
 export function getIikoWebhookState() {
   return webhookState;
 }
 
-export function saveIikoWebhookEvent(payload: unknown) {
+export function saveIikoWebhookEvent(
+  payload: unknown,
+  meta: {
+    httpStatus: number;
+    httpStatusText: string;
+    clientIp: string | null;
+  },
+) {
   const eventType = extractString(payload, ["eventType", "type", "event.type"]) ?? "unknown";
   const orderId =
     extractString(payload, ["orderId", "id", "order.id", "order.orderId"]) ?? null;
@@ -43,6 +67,9 @@ export function saveIikoWebhookEvent(payload: unknown) {
     orderId,
     status,
     timestamp,
+    httpStatus: meta.httpStatus,
+    httpStatusText: meta.httpStatusText,
+    clientIp: meta.clientIp,
     orderEvent: orderId
       ? {
           source: "IIKO",
@@ -50,17 +77,50 @@ export function saveIikoWebhookEvent(payload: unknown) {
           iikoOrderId: orderId,
         }
       : null,
-    ...(process.env.NODE_ENV !== "production" ? { rawPayload: payload } : {}),
+    rawPayload: payload,
   };
 
   webhookState.lastEvent = snapshot;
   webhookState.lastError = null;
+  webhookState.lastAttempt = {
+    receivedAt: snapshot.receivedAt,
+    httpStatus: meta.httpStatus,
+    httpStatusText: meta.httpStatusText,
+    clientIp: meta.clientIp,
+    error: null,
+  };
+  webhookState.totalReceived += 1;
+  webhookState.events = [snapshot, ...webhookState.events].slice(0, 50);
 
   return snapshot;
 }
 
-export function saveIikoWebhookError(error: string) {
+export function saveIikoWebhookError(
+  error: string,
+  meta?: {
+    httpStatus: number;
+    httpStatusText: string;
+    clientIp: string | null;
+  },
+) {
   webhookState.lastError = error;
+  if (meta) {
+    webhookState.lastAttempt = {
+      receivedAt: new Date().toISOString(),
+      httpStatus: meta.httpStatus,
+      httpStatusText: meta.httpStatusText,
+      clientIp: meta.clientIp,
+      error,
+    };
+  }
+}
+
+export function clearIikoWebhookJournal() {
+  webhookState.lastEvent = null;
+  webhookState.lastError = null;
+  webhookState.lastAttempt = null;
+  webhookState.totalReceived = 0;
+  webhookState.events = [];
 }
 
 function extractString(payload: unknown, paths: string[]) {
