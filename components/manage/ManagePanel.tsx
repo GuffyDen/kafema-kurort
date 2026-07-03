@@ -117,7 +117,7 @@ export function ManagePanel() {
     } catch {
       setWebhookStatus({
         status: "error",
-        message: "Не удалось получить статус webhook",
+        message: "Не удалось получить статус событий iiko",
         webhookUrl: "https://kafema-kurort.vercel.app/api/iiko/webhook",
         tokenConfigured: false,
         warning: null,
@@ -125,7 +125,7 @@ export function ManagePanel() {
         lastEventType: null,
         lastOrderId: null,
         lastOrderStatus: null,
-        lastError: "Не удалось получить статус webhook",
+        lastError: "Не удалось получить статус событий iiko",
       });
     }
   }
@@ -158,8 +158,8 @@ export function ManagePanel() {
       setIikoResult(null);
       setIikoError(
         error instanceof Error
-          ? `${error.message}. Приложение осталось в mock/local mode.`
-          : "Не удалось проверить iiko. Приложение осталось в mock/local mode.",
+          ? `${error.message}. Приложение продолжает работать с локальными данными.`
+          : "Не удалось проверить iiko. Приложение продолжает работать с локальными данными.",
       );
     } finally {
       setIsCheckingIiko(false);
@@ -335,8 +335,8 @@ function ConnectionsSection({
           <div>
             <h2 className="text-2xl font-black">iiko</h2>
             <p className="mt-1 text-sm leading-6 text-[#777777]">
-              Read-only подключение. iiko остается source of truth для меню,
-              цен, категорий, модификаторов, стоп-листов и наличия.
+              Проверка подключения к меню, ценам, категориям, модификаторам,
+              стоп-листам и наличию.
             </p>
           </div>
           <ConnectionBadge connected={Boolean(iikoResult)} />
@@ -345,9 +345,9 @@ function ConnectionsSection({
         {!iikoResult ? (
           <div className="mt-6 space-y-4">
             <div className="rounded-3xl bg-[#F7F7F7] p-4">
-              <p className="text-sm font-bold text-[#777777]">Server env mode</p>
+              <p className="text-sm font-bold text-[#777777]">Безопасное подключение</p>
               <p className="mt-2 text-base font-black">
-                Сейчас реальные ключи iiko берутся только из `.env.local`.
+                Сейчас реальные ключи iiko задаются на сервере.
               </p>
               <p className="mt-2 text-sm leading-6 text-[#777777]">
                 Форма ниже оставлена как будущий мастер подключения. Безопасное
@@ -472,50 +472,55 @@ function WebhookCard({
     <Card>
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-black">Webhook</h2>
+          <h2 className="text-2xl font-black">События iiko</h2>
           <p className="mt-1 text-sm leading-6 text-[#777777]">
-            Входящий endpoint для событий iiko. События принимаются локально и
-            сохраняются в mock-хранилище для будущей BaristaQueue.
+            Прием событий от iiko для будущей очереди бариста.
           </p>
         </div>
         <span className="rounded-full bg-emerald-50 px-3 py-1.5 text-sm font-black text-emerald-700">
-          ready
+          Готово
         </span>
       </div>
 
       <div className="mt-5 space-y-4">
-        <div className="rounded-3xl bg-[#F7F7F7] p-4">
-          <p className="text-sm font-bold text-[#777777]">Webhook URL</p>
-          <p className="mt-2 break-all font-mono text-sm font-black">
-            {webhookUrl}
-          </p>
-        </div>
-
         <div className="grid gap-3 md:grid-cols-2">
-          <Info label="Статус" value={status?.message ?? "Загружается"} />
+          <Info label="Статус" value={formatIikoEventStatus(status?.message)} />
           <Info
-            label="Token"
-            value={status?.tokenConfigured ? "configured" : "not configured"}
+            label="Защитный токен"
+            value={status?.tokenConfigured ? "Настроен" : "Не настроен"}
           />
           <Info
-            label="Last webhook"
+            label="Последнее событие"
             value={status?.lastWebhookReceivedAt ?? "Еще не получен"}
           />
-          <Info label="Last event type" value={status?.lastEventType ?? "Нет"} />
-          <Info label="Last orderId" value={status?.lastOrderId ?? "Нет"} />
-          <Info label="Last status" value={status?.lastOrderStatus ?? "Нет"} />
-          <Info label="Last error" value={status?.lastError ?? "Нет"} />
-          <Info label="Warning" value={status?.warning ?? "Нет"} />
+          <Info label="Тип события" value={status?.lastEventType ?? "Нет"} />
+          <Info label="Номер события" value={status?.lastOrderId ?? "Нет"} />
+          <Info label="Статус заказа" value={status?.lastOrderStatus ?? "Нет"} />
+          <Info label="Последняя ошибка" value={status?.lastError ?? "Нет"} />
         </div>
 
-        <div className="rounded-3xl border border-[#E6E6E6] bg-[#F7F7F7] p-4">
-          <p className="text-sm font-bold text-[#777777]">Пример curl</p>
-          <pre className="mt-3 overflow-x-auto whitespace-pre-wrap break-words text-xs font-bold leading-6 text-[#1A1A1A]">
-            {curlExample}
-          </pre>
-        </div>
+        <details className="rounded-3xl border border-[#E6E6E6] bg-[#F7F7F7] p-4">
+          <summary className="cursor-pointer text-sm font-black text-[#777777]">
+            Диагностика
+          </summary>
+          <div className="mt-4 space-y-4">
+            <div>
+              <p className="text-sm font-bold text-[#777777]">Webhook URL</p>
+              <p className="mt-2 break-all font-mono text-sm font-black">
+                {webhookUrl}
+              </p>
+            </div>
+            <Info label="Warning" value={status?.warning ?? "Нет"} />
+            <div>
+              <p className="text-sm font-bold text-[#777777]">Пример curl</p>
+              <pre className="mt-3 overflow-x-auto whitespace-pre-wrap break-words text-xs font-bold leading-6 text-[#1A1A1A]">
+                {curlExample}
+              </pre>
+            </div>
+          </div>
+        </details>
 
-        <SecondaryButton onClick={onRefresh}>Обновить статус webhook</SecondaryButton>
+        <SecondaryButton onClick={onRefresh}>Обновить статус</SecondaryButton>
       </div>
     </Card>
   );
@@ -559,7 +564,7 @@ function ConnectedSummary({
         <h3 className="font-black">Диагностика iiko</h3>
         <div className="mt-3 grid gap-3 md:grid-cols-2">
           <Info label="Статус подключения" value="Подключено" />
-          <Info label="Режим" value={result.mode === "real" ? "real iiko" : "mock/local"} />
+          <Info label="Режим" value={result.mode === "real" ? "iiko" : "Локальные данные"} />
           <Info label="Token получен" value={result.tokenReceived ? "Да" : "Нет"} />
           <Info label="Меню получено" value={result.menuReceived ? "Да" : "Нет"} />
           <Info label="Последняя успешная синхронизация" value={lastSyncAt} />
@@ -569,6 +574,18 @@ function ConnectedSummary({
       </div>
     </div>
   );
+}
+
+function formatIikoEventStatus(message?: string) {
+  if (!message) {
+    return "Загружается";
+  }
+
+  if (message.toLowerCase().includes("webhook")) {
+    return "Готов к приему событий";
+  }
+
+  return message;
 }
 
 function StorefrontSection({
@@ -610,10 +627,6 @@ function StorefrontSection({
                       src={overlay.imageSrc}
                     />
                   </div>
-                  <p className="mt-3 text-xs font-bold text-[#777777]">
-                    iikoProductId
-                  </p>
-                  <p className="break-all text-sm font-black">{getIikoProductId(item)}</p>
                 </div>
 
                 <div className="grid gap-4 lg:grid-cols-2">
@@ -661,16 +674,20 @@ function StorefrontSection({
                     </div>
                   </div>
 
-                  <div className="lg:col-span-2 rounded-3xl bg-[#F7F7F7] p-4">
-                    <div className="grid gap-3 md:grid-cols-3">
+                  <details className="lg:col-span-2 rounded-3xl bg-[#F7F7F7] p-4">
+                    <summary className="cursor-pointer text-sm font-black text-[#777777]">
+                      Техническая информация
+                    </summary>
+                    <div className="mt-4 grid gap-3 md:grid-cols-3">
+                      <Info label="iikoProductId" value={getIikoProductId(item)} />
                       <Info label="iikoCategoryId" value={getIikoCategoryId(item)} />
-                      <Info label="Категория из iiko" value={category?.name ?? "Не найдена"} />
                       <Info
                         label="iikoModifierId"
                         value={modifierIds.length ? modifierIds.join(", ") : "Нет"}
                       />
+                      <Info label="Категория из iiko" value={category?.name ?? "Не найдена"} />
                     </div>
-                  </div>
+                  </details>
                 </div>
               </div>
             </Card>
@@ -766,7 +783,7 @@ function QrSection() {
           </div>
           <h2 className="mt-5 text-xl font-black">{title}</h2>
           <p className="mt-2 text-sm leading-6 text-[#777777]">{description}</p>
-          <SecondaryButton onClick={() => undefined}>Скачать PDF</SecondaryButton>
+          <SecondaryButton disabled onClick={() => undefined}>Скоро</SecondaryButton>
         </Card>
       ))}
     </div>
@@ -817,8 +834,9 @@ function SettingsSection({
 
 function ReadOnlyAudit({ summary }: { summary: { products: number; categories: number; modifiers: number; terminalGroups: number; stopLists: number } }) {
   return (
-    <section className="mt-6 rounded-[28px] border border-[#E6E6E6] bg-white p-5">
-      <div className="flex items-start justify-between gap-4">
+    <details className="mt-6 rounded-[28px] border border-[#E6E6E6] bg-white p-5">
+      <summary className="cursor-pointer text-lg font-black">Диагностика</summary>
+      <div className="mt-4 flex items-start justify-between gap-4">
         <div>
           <h2 className="text-lg font-black">iiko request audit</h2>
           <p className="mt-1 text-sm text-[#777777]">
@@ -843,11 +861,11 @@ function ReadOnlyAudit({ summary }: { summary: { products: number; categories: n
         ))}
       </div>
       <p className="mt-3 text-xs font-bold text-[#777777]">
-        Mock/local summary: {summary.products} товаров, {summary.categories}{" "}
+        Локальная сводка: {summary.products} товаров, {summary.categories}{" "}
         категорий, {summary.modifiers} модификаторов, {summary.terminalGroups}{" "}
         terminal groups, {summary.stopLists} стоп-листов.
       </p>
-    </section>
+    </details>
   );
 }
 
@@ -1019,7 +1037,7 @@ function SecondaryButton({
 function StatusPill({ connected }: { connected: boolean }) {
   return (
     <div className="rounded-full bg-white px-4 py-2 text-sm font-black shadow-[0_12px_26px_rgba(26,26,26,0.05)]">
-      {connected ? "🟢 iiko подключена" : "⚪ mock/local mode"}
+      {connected ? "🟢 iiko подключена" : "⚪ Локальные данные"}
     </div>
   );
 }

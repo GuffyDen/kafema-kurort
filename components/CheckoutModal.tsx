@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { ChangeEvent, FormEvent } from "react";
 import { BackgroundDecor } from "@/components/BackgroundDecor";
 import type { CartItem } from "@/components/CartModal";
@@ -24,26 +24,20 @@ export function CheckoutModal({
   onBack,
   onConfirm,
 }: CheckoutModalProps) {
-  const [phone, setPhone] = useState("");
+  const [customerName, setCustomerName] = useState(() => getStoredCustomerProfile().name);
+  const [phone, setPhone] = useState(() => {
+    const profile = getStoredCustomerProfile();
+    const legacyPhone =
+      typeof window === "undefined" ? "" : localStorage.getItem("kafema-phone") || "";
+    return formatPhone(profile.phone || legacyPhone);
+  });
   const [phoneError, setPhoneError] = useState("");
-
-  useEffect(() => {
-    const savedPhone = localStorage.getItem("kafema-phone");
-
-    if (savedPhone) {
-      const syncPhone = window.setTimeout(() => {
-        setPhone(formatPhone(savedPhone));
-      }, 0);
-
-      return () => window.clearTimeout(syncPhone);
-    }
-  }, []);
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     const formData = new FormData(event.currentTarget);
-    const name = String(formData.get("name") ?? "").trim();
+    const name = customerName.trim();
     const comment = String(formData.get("comment") ?? "").trim();
 
     if (getNationalPhoneDigits(phone).length !== 10) {
@@ -51,6 +45,7 @@ export function CheckoutModal({
       return;
     }
 
+    saveCustomerProfile({ name, phone });
     localStorage.setItem("kafema-phone", phone);
     setPhoneError("");
     onConfirm({ name, phone, comment: comment || undefined });
@@ -96,6 +91,8 @@ export function CheckoutModal({
                 name="name"
                 placeholder="Как к вам обращаться"
                 required
+                value={customerName}
+                onChange={(event) => setCustomerName(event.target.value)}
               />
             </label>
 
@@ -197,6 +194,40 @@ export function CheckoutModal({
       </form>
     </div>
   );
+}
+
+const customerProfileKey = "kafema_customer_profile";
+
+type CustomerProfile = {
+  name: string;
+  phone: string;
+};
+
+function getStoredCustomerProfile(): CustomerProfile {
+  if (typeof window === "undefined") {
+    return { name: "", phone: "" };
+  }
+
+  const savedProfile = localStorage.getItem(customerProfileKey);
+
+  if (!savedProfile) {
+    return { name: "", phone: "" };
+  }
+
+  try {
+    const parsedProfile = JSON.parse(savedProfile) as Partial<CustomerProfile>;
+
+    return {
+      name: typeof parsedProfile.name === "string" ? parsedProfile.name : "",
+      phone: typeof parsedProfile.phone === "string" ? parsedProfile.phone : "",
+    };
+  } catch {
+    return { name: "", phone: "" };
+  }
+}
+
+function saveCustomerProfile(profile: CustomerProfile) {
+  localStorage.setItem(customerProfileKey, JSON.stringify(profile));
 }
 
 function getNationalPhoneDigits(value: string) {

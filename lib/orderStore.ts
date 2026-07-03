@@ -10,6 +10,10 @@ export type OrderItem = {
   volume: string;
   modifiers?: string[];
   baristaType?: "drink" | "food";
+  categoryId?: string;
+  categoryName?: string;
+  workingZoneId?: string;
+  type?: string;
   quantity: number;
 };
 
@@ -23,6 +27,8 @@ export type Order = {
   statusChangedAt?: number;
   items: OrderItem[];
   status: OrderStatus;
+  source?: "client" | "mock" | "iiko";
+  total?: number;
 };
 
 type CreateOrderInput = {
@@ -30,111 +36,14 @@ type CreateOrderInput = {
   phone: string;
   comment?: string;
   items: OrderItem[];
+  total?: number;
 };
 
-const storageKey = "kafema-orders-v1";
+const storageKey = "kafema_orders";
+const legacyStorageKey = "kafema-orders-v1";
 const channelName = "kafema-orders";
 
-const initialOrders: Order[] = [
-  {
-    id: "order-001",
-    number: "001",
-    customerName: "Анна",
-    phone: "+7 (914) 234-56-78",
-    createdAt: "09:42",
-    items: [
-      {
-        id: "cappuccino",
-        name: "Капучино",
-        volume: "300 мл",
-        baristaType: "drink",
-        quantity: 2,
-      },
-      {
-        id: "croissant",
-        name: "Круассан",
-        volume: "90 г",
-        baristaType: "food",
-        quantity: 1,
-      },
-    ],
-    comment: "Один капучино без сахара",
-    status: "new",
-  },
-  {
-    id: "order-002",
-    number: "002",
-    customerName: "Денис",
-    phone: "+7 (924) 112-45-90",
-    createdAt: "09:48",
-    items: [
-      {
-        id: "latte",
-        name: "Латте",
-        volume: "350 мл",
-        baristaType: "drink",
-        quantity: 1,
-      },
-      {
-        id: "cheesecake",
-        name: "Чизкейк",
-        volume: "120 г",
-        baristaType: "food",
-        quantity: 1,
-      },
-    ],
-    status: "in_progress",
-  },
-  {
-    id: "order-003",
-    number: "003",
-    customerName: "Мария",
-    phone: "+7 (914) 987-65-43",
-    createdAt: "09:55",
-    items: [
-      {
-        id: "raf",
-        name: "Раф",
-        volume: "300 мл",
-        baristaType: "drink",
-        quantity: 1,
-      },
-      {
-        id: "americano",
-        name: "Американо",
-        volume: "250 мл",
-        baristaType: "drink",
-        quantity: 1,
-      },
-    ],
-    comment: "Раф погорячее",
-    status: "new",
-  },
-  {
-    id: "order-004",
-    number: "004",
-    customerName: "Илья",
-    phone: "+7 (902) 555-31-20",
-    createdAt: "10:01",
-    items: [
-      {
-        id: "flat-white",
-        name: "Флэт уайт",
-        volume: "250 мл",
-        baristaType: "drink",
-        quantity: 2,
-      },
-      {
-        id: "cocoa",
-        name: "Какао",
-        volume: "300 мл",
-        baristaType: "drink",
-        quantity: 1,
-      },
-    ],
-    status: "ready",
-  },
-];
+const initialOrders: Order[] = [];
 
 let orders = initialOrders;
 let hydrated = false;
@@ -175,17 +84,19 @@ function hydrateOrders() {
   hydrated = true;
 
   const savedOrders = localStorage.getItem(storageKey);
+  const legacyOrders = localStorage.getItem(legacyStorageKey);
 
-  if (!savedOrders) {
+  if (!savedOrders && !legacyOrders) {
     saveOrders(false);
     return;
   }
 
   try {
-    const parsedOrders = JSON.parse(savedOrders) as Order[];
+    const parsedOrders = JSON.parse(savedOrders ?? legacyOrders ?? "[]") as Order[];
 
     if (Array.isArray(parsedOrders)) {
       orders = parsedOrders;
+      saveOrders(false);
     }
   } catch {
     orders = initialOrders;
@@ -281,6 +192,8 @@ export function createOrder(input: CreateOrderInput) {
     statusChangedAt: Date.now(),
     items: input.items,
     status: "new",
+    source: "client",
+    total: input.total,
   };
 
   setOrders([...orders, order]);

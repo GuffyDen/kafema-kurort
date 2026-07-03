@@ -27,30 +27,44 @@ export function ProductConfigurator({
   onClose,
   onAdd,
 }: ProductConfiguratorProps) {
-  const [selection, setSelection] = useState<MenuSelection>(() =>
-    getDefaultMenuSelection(menu, product),
+  const currentProduct = useMemo(
+    () => menu.menuItems.find((item) => item.id === product.id) ?? product,
+    [menu.menuItems, product],
   );
-  const variants = useMemo(() => getAvailableVariants(product), [product]);
+  const [selection, setSelection] = useState<MenuSelection>(() =>
+    getDefaultMenuSelection(menu, currentProduct),
+  );
+  const variants = useMemo(() => getAvailableVariants(currentProduct), [currentProduct]);
   const addonGroups = useMemo(
-    () => getMenuItemAddonGroups(menu, product),
-    [menu, product],
+    () => getMenuItemAddonGroups(menu, currentProduct),
+    [menu, currentProduct],
   );
   const configuredItem = useMemo(
-    () => configureMenuItem(menu, product, selection),
-    [menu, product, selection],
+    () => configureMenuItem(menu, currentProduct, selection),
+    [menu, currentProduct, selection],
   );
-  const canAdd = isMenuSelectionComplete(menu, product, selection);
+  const canAdd = isMenuSelectionComplete(menu, currentProduct, selection);
 
   function selectVariant(variantId: string) {
     setSelection((current) => ({ ...current, variantId }));
   }
 
-  function selectSingleOption(groupId: string, optionId: string | null) {
+  function selectSingleOption(
+    groupId: string,
+    optionId: string | null,
+    required = false,
+  ) {
     setSelection((current) => ({
       ...current,
       addonOptionIdsByGroupId: {
         ...current.addonOptionIdsByGroupId,
-        [groupId]: optionId ? [optionId] : [],
+        [groupId]:
+          optionId &&
+          !(current.addonOptionIdsByGroupId[groupId] ?? []).includes(optionId)
+            ? [optionId]
+            : required
+              ? current.addonOptionIdsByGroupId[groupId] ?? []
+              : [],
       },
     }));
   }
@@ -78,17 +92,16 @@ export function ProductConfigurator({
       <div className="relative z-10 mx-auto flex max-h-full w-full max-w-md flex-col overflow-hidden rounded-[var(--radius-xxl)] bg-[var(--color-card)] shadow-[var(--shadow-soft)]">
         <div className="flex items-start justify-between gap-4 border-b border-[#E8D9C8] px-5 py-5">
           <div>
-            <p className="text-sm font-bold uppercase tracking-[0.18em] text-[var(--color-caramel)]">Настройка</p>
-            <h2 className="mt-1 text-2xl font-black text-[var(--color-text-main)]">
-              {product.name}
+            <h2 className="text-2xl font-black text-[var(--color-text-main)]">
+              {currentProduct.name}
             </h2>
-            <p className="mt-1 text-sm text-[var(--color-text-muted)]">{product.description}</p>
+            <p className="mt-1 text-sm text-[var(--color-text-muted)]">{currentProduct.description}</p>
           </div>
           <button
             type="button"
             className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#FFF7EA] text-2xl leading-none text-[var(--color-text-main)] shadow-[0_8px_18px_rgba(73,52,36,0.10)] transition duration-300 hover:text-[var(--color-caramel)] active:scale-95"
             onClick={onClose}
-            aria-label="Закрыть настройку товара"
+            aria-label="Закрыть товар"
           >
             ×
           </button>
@@ -97,7 +110,7 @@ export function ProductConfigurator({
         <div className="flex-1 space-y-5 overflow-y-auto px-5 py-5">
           {variants.length > 0 ? (
             <section>
-              <h3 className="text-base font-black text-[var(--color-text-main)]">Вариант</h3>
+              <h3 className="text-base font-black text-[var(--color-text-main)]">Размер</h3>
               <div className="mt-3 space-y-2">
                 {variants.map((variant) => (
                   <label
@@ -128,6 +141,10 @@ export function ProductConfigurator({
 
           {addonGroups.map((group) => {
             const selectedIds = selection.addonOptionIdsByGroupId[group.id] ?? [];
+            const showEmptySingleOption =
+              !group.required &&
+              group.selectionType === "single" &&
+              !isSugarGroupWithEmptyOption(group);
             return (
               <section key={group.id}>
                 <div className="flex items-center justify-between gap-3">
@@ -140,7 +157,7 @@ export function ProductConfigurator({
                 </div>
 
                 <div className="mt-3 space-y-2">
-                  {!group.required && group.selectionType === "single" ? (
+                  {showEmptySingleOption ? (
                     <label className="flex min-h-12 items-center rounded-[22px] border border-[#E8D9C8] bg-[#FFFDF8] px-4 py-3">
                       <span className="flex items-center gap-3">
                         <input
@@ -150,7 +167,7 @@ export function ProductConfigurator({
                           onChange={() => selectSingleOption(group.id, null)}
                         />
                         <span className="font-semibold text-[var(--color-text-muted)]">
-                          Без дополнения
+                          Не добавлять
                         </span>
                       </span>
                     </label>
@@ -174,8 +191,13 @@ export function ProductConfigurator({
                             onChange={() =>
                               group.selectionType === "multiple"
                                 ? toggleMultipleOption(group.id, option.id)
-                                : selectSingleOption(group.id, option.id)
+                                : selectSingleOption(group.id, option.id, group.required)
                             }
+                            onClick={() => {
+                              if (group.selectionType === "single" && checked) {
+                                selectSingleOption(group.id, option.id, group.required);
+                              }
+                            }}
                           />
                           <span className="font-semibold text-[var(--color-text-main)]">
                             {option.name}
@@ -207,5 +229,20 @@ export function ProductConfigurator({
         </div>
       </div>
     </div>
+  );
+}
+
+function isSugarGroupWithEmptyOption(group: {
+  id: string;
+  name: string;
+  options: Array<{ name: string }>;
+}) {
+  const isSugarGroup =
+    group.id.toLowerCase().includes("sugar") ||
+    group.name.toLowerCase().includes("сахар");
+
+  return (
+    isSugarGroup &&
+    group.options.some((option) => option.name.toLowerCase().includes("без сахара"))
   );
 }

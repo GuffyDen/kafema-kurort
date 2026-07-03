@@ -11,10 +11,11 @@ import type { Order, OrderStatus } from "@/lib/orderStore";
 type OrderSuccessModalProps = {
   order: Order;
   onBackToMenu: () => void;
+  journeyStatusOverride?: ClientJourneyStatus;
 };
 
 const journeyStatusByOrderStatus: Record<OrderStatus, ClientJourneyStatus> = {
-  new: "QUEUED",
+  new: "PAID",
   in_progress: "IN_PROGRESS",
   ready: "READY",
   completed: "READY",
@@ -25,12 +26,12 @@ const heroCopy: Record<
   { eyebrow: string; title: string; subtitle: string }
 > = {
   PAID: {
-    eyebrow: "Оплата подтверждена",
-    title: "Заказ оплачен",
+    eyebrow: "Заказ принят",
+    title: "Ваш заказ принят",
     subtitle: "Передаем его бариста",
   },
   QUEUED: {
-    eyebrow: "Оплата подтверждена",
+    eyebrow: "Заказ принят",
     title: "Ваш заказ принят",
     subtitle: "Скоро начнем готовить",
   },
@@ -47,10 +48,11 @@ const heroCopy: Record<
 };
 
 export function OrderSuccessModal({
+  journeyStatusOverride,
   order,
   onBackToMenu,
 }: OrderSuccessModalProps) {
-  const journeyStatus = journeyStatusByOrderStatus[order.status];
+  const journeyStatus = journeyStatusOverride ?? journeyStatusByOrderStatus[order.status];
   const copy = heroCopy[journeyStatus];
   const isReady = journeyStatus === "READY";
 

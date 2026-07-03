@@ -11,8 +11,8 @@ const journeySteps: Array<{
 }> = [
   {
     id: "PAID",
-    label: "Оплачен",
-    caption: "ЮKassa mock",
+    label: "Заказ принят",
+    caption: "Передан бариста",
   },
   {
     id: "QUEUED",
@@ -40,31 +40,24 @@ const statusOrder: Record<ClientJourneyStatus, number> = {
 
 export function OrderStatusTimeline({ status }: OrderStatusTimelineProps) {
   const activeIndex = statusOrder[status];
+  const progressWidth = `${(activeIndex / (journeySteps.length - 1)) * 75}%`;
 
   return (
     <section className="rounded-[28px] bg-transparent">
-      <div className="flex items-center justify-between gap-2">
-        {journeySteps.map((step, index) => {
-          const isDone = index <= activeIndex;
-          const isCurrent = index === activeIndex;
+      <div className="relative">
+        <div className="absolute left-[12.5%] right-[12.5%] top-5 h-1 rounded-full bg-[#E4D8C9]" />
+        <div
+          className="absolute left-[12.5%] top-5 h-1 rounded-full bg-[var(--color-caramel)] transition-[width] duration-300"
+          style={{ width: progressWidth }}
+        />
+        <div className="relative grid grid-cols-4">
+          {journeySteps.map((step, index) => {
+            const isDone = index <= activeIndex;
 
-          return (
-            <div
-              className="flex min-w-0 flex-1 flex-col items-center text-center"
-              key={step.id}
-            >
-              <div className="flex w-full items-center">
-                <div
-                  className={`h-1 flex-1 rounded-full ${
-                    index === 0
-                      ? "bg-transparent"
-                      : index <= activeIndex
-                        ? "bg-[var(--color-caramel)]"
-                        : "bg-[#E4D8C9]"
-                  }`}
-                />
+            return (
+              <div className="flex h-10 items-center justify-center" key={step.id}>
                 <span
-                  className={`flex size-10 shrink-0 items-center justify-center rounded-full border transition duration-300 ${
+                  className={`flex size-10 items-center justify-center rounded-full border transition duration-300 ${
                     isDone
                       ? "border-[var(--color-caramel)] bg-[#FFF3E2] text-[var(--color-caramel)] shadow-[0_10px_22px_rgba(189,134,73,0.24)]"
                       : "border-[#E4D8C9] bg-[#F4EADB] text-[var(--color-text-muted)]"
@@ -72,30 +65,38 @@ export function OrderStatusTimeline({ status }: OrderStatusTimelineProps) {
                 >
                   <StepIcon id={step.id} />
                 </span>
-                <div
-                  className={`h-1 flex-1 rounded-full ${
-                    index === journeySteps.length - 1
-                      ? "bg-transparent"
-                      : index < activeIndex
-                        ? "bg-[var(--color-caramel)]"
-                        : "bg-[#E4D8C9]"
-                  }`}
-                />
               </div>
+            );
+          })}
+        </div>
 
+        <div className="mt-3 grid grid-cols-4">
+          {journeySteps.map((step, index) => {
+            const isCurrent = index === activeIndex;
+
+            return (
               <p
-                className={`mt-3 truncate text-xs font-bold ${
+                className={`h-8 px-1 text-center text-xs font-bold leading-4 ${
                   isCurrent ? "text-[var(--color-caramel)]" : "text-[var(--color-text-main)]"
                 }`}
+                key={step.id}
               >
                 {step.label}
               </p>
-              <p className="mt-1 hidden text-[11px] font-semibold leading-tight text-[var(--color-text-muted)] min-[390px]:block">
-                {step.caption}
-              </p>
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
+
+        <div className="mt-1 hidden grid-cols-4 min-[390px]:grid">
+          {journeySteps.map((step) => (
+            <p
+              className="h-8 px-1 text-center text-[11px] font-semibold leading-tight text-[var(--color-text-muted)]"
+              key={step.id}
+            >
+              {step.caption}
+            </p>
+          ))}
+        </div>
       </div>
     </section>
   );

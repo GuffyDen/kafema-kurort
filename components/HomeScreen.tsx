@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { BackgroundDecor } from "@/components/BackgroundDecor";
 import { BottomNavigation } from "@/components/BottomNavigation";
+import type { BottomNavigationItem } from "@/components/BottomNavigation";
 import { CartBar } from "@/components/CartBar";
 import { CartModal } from "@/components/CartModal";
 import type { CartItem } from "@/components/CartModal";
@@ -15,18 +16,20 @@ import { ProductConfigurator } from "@/components/ProductConfigurator";
 import { ProductCard } from "@/components/ProductCard";
 import type { Product } from "@/components/ProductCard";
 import { SearchBar } from "@/components/SearchBar";
-import { SectionTitle } from "@/components/SectionTitle";
 import {
   getMenuItemWorkstationType,
+  isDemoMenuItem,
   isMenuItemOrderable,
   useMenu,
   type ConfiguredMenuItem,
   type MenuSelection,
 } from "@/lib/menuStore";
-import { createOrder, useOrder } from "@/lib/orderStore";
+import { createOrder, useOrder, useOrders } from "@/lib/orderStore";
+import type { Order } from "@/lib/orderStore";
 
 export function HomeScreen() {
   const menu = useMenu();
+  const [activeSection, setActiveSection] = useState<BottomNavigationItem>("menu");
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
@@ -34,10 +37,19 @@ export function HomeScreen() {
   const [activeOrderId, setActiveOrderId] = useState<string | null>(() =>
     getStoredActiveOrderId(),
   );
+  const [isViewingOrderDetail, setIsViewingOrderDetail] = useState(false);
   const [activeCategoryId, setActiveCategoryId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [greeting] = useState(() => getVladivostokGreeting());
+  const orders = useOrders();
   const activeOrder = useOrder(activeOrderId);
+  const clientOrders = useMemo(
+    () =>
+      orders
+        .filter((order) => order.source === "client" && order.status !== "completed")
+        .sort((firstOrder, secondOrder) => getOrderTime(firstOrder) - getOrderTime(secondOrder)),
+    [orders],
+  );
   const activeCategories = useMemo(
     () =>
       [...menu.categories]
@@ -62,7 +74,9 @@ export function HomeScreen() {
 
   const products = useMemo(
     () =>
-      menu.menuItems.filter((product) => isMenuItemOrderable(menu, product)),
+      menu.menuItems.filter(
+        (product) => isMenuItemOrderable(menu, product) && !isDemoMenuItem(product),
+      ),
     [menu],
   );
   const normalizedSearchQuery = normalizeSearch(searchQuery);
@@ -172,25 +186,52 @@ export function HomeScreen() {
         volume: item.summary,
         modifiers: item.modifiers,
         baristaType: getMenuItemWorkstationType(item.product),
+        categoryId: item.product.categoryId,
+        categoryName: menu.categories.find(
+          (category) => category.id === item.product.categoryId,
+        )?.name,
+        workingZoneId: item.product.workingZoneId,
+        type: item.product.kind,
         quantity: item.quantity,
       })),
+      total: cartTotal,
     });
 
     localStorage.setItem("kafema-active-order-id", order.id);
     setActiveOrderId(order.id);
+    setIsViewingOrderDetail(true);
+    setActiveSection("orders");
     setCartItems([]);
     setIsCheckoutOpen(false);
   }
 
   function returnToMenu() {
-    localStorage.removeItem("kafema-active-order-id");
-    setActiveOrderId(null);
+    setActiveSection("menu");
     setIsCartOpen(false);
     setIsCheckoutOpen(false);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  if (activeOrder) {
+  function handleNavigation(nextSection: BottomNavigationItem) {
+    if (nextSection === "orders") {
+      if (clientOrders.length === 1) {
+        setActiveOrderId(clientOrders[0].id);
+        setIsViewingOrderDetail(true);
+      } else {
+        setIsViewingOrderDetail(false);
+      }
+    }
+
+    setActiveSection(nextSection);
+  }
+
+  function openOrder(orderId: string) {
+    localStorage.setItem("kafema-active-order-id", orderId);
+    setActiveOrderId(orderId);
+    setIsViewingOrderDetail(true);
+  }
+
+  if (activeOrder && activeSection === "orders" && isViewingOrderDetail) {
     return (
       <OrderSuccessModal
         order={activeOrder}
@@ -204,76 +245,101 @@ export function HomeScreen() {
       <main className="relative min-h-screen overflow-x-hidden bg-[var(--color-bg-cream)] text-[var(--color-text-main)]">
         <BackgroundDecor />
         <div className="relative z-10 mx-auto min-h-screen w-full max-w-md px-4 pb-44 pt-5">
-          <Header />
+          {activeSection === "menu" ? (
+            <>
+              <Header />
 
-          <section className="mt-8">
-            <h1 className="text-[30px] font-black leading-tight text-[var(--color-text-main)]">
-              {greeting}
-            </h1>
-            <p className="mt-2 text-base leading-6 text-[var(--color-text-muted)]">
-              Что будем пить сегодня?
-            </p>
-          </section>
+              <section className="mt-8">
+                <h1 className="text-[30px] font-black leading-tight text-[var(--color-text-main)]">
+                  {greeting}
+                </h1>
+                <p className="mt-2 text-base leading-6 text-[var(--color-text-muted)]">
+                  Что закажем сегодня?
+                </p>
+              </section>
 
-          <div className="mt-6">
-            <SearchBar value={searchQuery} onChange={setSearchQuery} />
-          </div>
+              <div className="mt-6">
+                <SearchBar value={searchQuery} onChange={setSearchQuery} />
+              </div>
 
-          <section className="mt-7">
-            <div className="flex gap-3 overflow-x-auto pb-3 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-              {categories.map((category) => (
-                <CategoryCard
-                  key={category.name}
-                  icon={category.icon}
-                  name={category.name}
-                  active={category.active}
-                  onClick={() =>
-                    setActiveCategoryId((currentCategoryId) =>
-                      currentCategoryId === category.id ? null : category.id,
-                    )
-                  }
-                />
-              ))}
-            </div>
-          </section>
-
-          <section className="mt-7">
-            <SectionTitle
-              title="Популярное"
-              subtitle="Любимые позиции в мягком кофейном настроении"
-            />
-
-            <div className="mt-5 grid grid-cols-2 gap-4">
-              {visibleProducts.length > 0 ? (
-                visibleProducts.map((product) => (
-                  <ProductCard
-                    key={product.id}
-                    product={product}
-                    onAdd={setSelectedProduct}
-                  />
-                ))
-              ) : (
-                <div className="col-span-2">
-                  <EmptyState
-                    text={
-                      normalizedSearchQuery
-                        ? "Ничего не найдено"
-                        : "Пока в меню нет доступных товаров."
-                    }
-                  />
+              <section className="mt-7">
+                <div className="flex gap-3 overflow-x-auto pb-3 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                  {categories.map((category) => (
+                    <CategoryCard
+                      key={category.name}
+                      icon={category.icon}
+                      name={category.name}
+                      active={category.active}
+                      onClick={() =>
+                        setActiveCategoryId((currentCategoryId) =>
+                          currentCategoryId === category.id ? null : category.id,
+                        )
+                      }
+                    />
+                  ))}
                 </div>
-              )}
-            </div>
-          </section>
+              </section>
+
+              <section className="mt-7">
+                <div className="grid grid-cols-2 gap-4">
+                  {visibleProducts.length > 0 ? (
+                    visibleProducts.map((product) => (
+                      <ProductCard
+                        key={product.id}
+                        product={product}
+                        onAdd={setSelectedProduct}
+                      />
+                    ))
+                  ) : (
+                    <div className="col-span-2">
+                      <EmptyState
+                        text={
+                          normalizedSearchQuery
+                            ? "Ничего не найдено"
+                            : "Пока в меню нет доступных товаров."
+                        }
+                      />
+                    </div>
+                  )}
+                </div>
+              </section>
+            </>
+          ) : null}
+
+          {activeSection === "orders" && !isViewingOrderDetail ? (
+            clientOrders.length > 0 ? (
+              <ClientOrdersList
+                orders={clientOrders}
+                onBackToMenu={() => setActiveSection("menu")}
+                onOpenOrder={openOrder}
+              />
+            ) : (
+              <ClientSectionPlaceholder
+                title="У вас пока нет активного заказа"
+                actionLabel="Перейти в меню"
+                onAction={() => setActiveSection("menu")}
+              />
+            )
+          ) : null}
+
+          {activeSection === "profile" ? (
+            <ClientSectionPlaceholder
+              title="Вход по номеру телефона появится в ближайшем обновлении."
+              actionLabel="Перейти в меню"
+              onAction={() => setActiveSection("menu")}
+            />
+          ) : null}
         </div>
       </main>
 
-      <CartBar
-        itemsCount={cartCount}
-        total={cartTotal}
-        onOpen={() => setIsCartOpen(true)}
-      />
-      <BottomNavigation />
+      {activeSection === "menu" ? (
+        <CartBar
+          itemsCount={cartCount}
+          total={cartTotal}
+          onOpen={() => setIsCartOpen(true)}
+        />
+      ) : null}
+      <BottomNavigation activeItem={activeSection} onSelect={handleNavigation} />
 
       {isCartOpen ? (
         <CartModal
@@ -312,6 +378,99 @@ export function HomeScreen() {
   );
 }
 
+function ClientSectionPlaceholder({
+  actionLabel,
+  onAction,
+  title,
+}: {
+  actionLabel: string;
+  onAction: () => void;
+  title: string;
+}) {
+  return (
+    <>
+      <Header />
+      <section className="mt-8 flex min-h-[58vh] items-center">
+        <div className="w-full rounded-[32px] border border-[#E8D9C8] bg-[var(--color-card)] px-5 py-8 text-center shadow-[var(--shadow-soft)]">
+          <h1 className="text-2xl font-black leading-tight text-[var(--color-text-main)]">
+            {title}
+          </h1>
+          <button
+            type="button"
+            className="mt-6 h-12 rounded-[24px] bg-[#BD8649] px-6 text-sm font-black text-white shadow-[0_12px_22px_rgba(189,134,73,0.20)] transition duration-300 active:scale-95"
+            onClick={onAction}
+          >
+            {actionLabel}
+          </button>
+        </div>
+      </section>
+    </>
+  );
+}
+
+function ClientOrdersList({
+  onBackToMenu,
+  onOpenOrder,
+  orders,
+}: {
+  onBackToMenu: () => void;
+  onOpenOrder: (orderId: string) => void;
+  orders: Order[];
+}) {
+  return (
+    <>
+      <Header />
+      <section className="mt-8">
+        <h1 className="text-[30px] font-black leading-tight text-[var(--color-text-main)]">
+          Заказы
+        </h1>
+        <div className="mt-5 space-y-3">
+          {orders.map((order) => {
+            const itemsCount = order.items.reduce(
+              (sum, item) => sum + item.quantity,
+              0,
+            );
+
+            return (
+              <button
+                className="w-full rounded-[28px] border border-[#E8D9C8] bg-[var(--color-card)] p-4 text-left shadow-[var(--shadow-soft)] transition duration-300 active:scale-[0.99]"
+                key={order.id}
+                type="button"
+                onClick={() => onOpenOrder(order.id)}
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-xl font-black text-[var(--color-text-main)]">
+                      Заказ #{order.number}
+                    </p>
+                    <p className="mt-1 text-sm font-bold text-[var(--color-caramel)]">
+                      {getClientOrderStatusText(order.status)}
+                    </p>
+                  </div>
+                  <span className="rounded-full bg-[#F2E7D9] px-3 py-1 text-sm font-bold text-[var(--color-text-muted)]">
+                    {order.createdAt}
+                  </span>
+                </div>
+
+                <p className="mt-3 text-sm font-semibold text-[var(--color-text-muted)]">
+                  {formatItemsCount(itemsCount)} · {(order.total ?? 0).toLocaleString("ru-RU")} ₽
+                </p>
+              </button>
+            );
+          })}
+        </div>
+        <button
+          type="button"
+          className="mt-5 h-12 w-full rounded-[24px] bg-[#BD8649] px-6 text-sm font-black text-white shadow-[0_12px_22px_rgba(189,134,73,0.20)] transition duration-300 active:scale-95"
+          onClick={onBackToMenu}
+        >
+          Перейти в меню
+        </button>
+      </section>
+    </>
+  );
+}
+
 function createCartItemId(productId: string, selection: MenuSelection) {
   const addonPairs = Object.entries(selection.addonOptionIdsByGroupId)
     .map(([groupId, optionIds]) => [groupId, [...optionIds].sort()] as const)
@@ -322,6 +481,42 @@ function createCartItemId(productId: string, selection: MenuSelection) {
     variantId: selection.variantId ?? "",
     addonPairs,
   });
+}
+
+function getClientOrderStatusText(status: Order["status"]) {
+  if (status === "in_progress") return "Готовится";
+  if (status === "ready") return "Заказ готов";
+  if (status === "completed") return "Выдан";
+  return "Заказ принят";
+}
+
+function formatItemsCount(count: number) {
+  const lastTwoDigits = count % 100;
+  const lastDigit = count % 10;
+
+  if (lastTwoDigits >= 11 && lastTwoDigits <= 14) {
+    return `${count} позиций`;
+  }
+
+  if (lastDigit === 1) {
+    return `${count} позиция`;
+  }
+
+  if (lastDigit >= 2 && lastDigit <= 4) {
+    return `${count} позиции`;
+  }
+
+  return `${count} позиций`;
+}
+
+function getOrderTime(order: Order) {
+  const numericId = Number(order.id.replace(/\D/g, ""));
+
+  if (Number.isFinite(numericId) && numericId > 0) {
+    return numericId;
+  }
+
+  return 0;
 }
 
 function getStoredActiveOrderId() {

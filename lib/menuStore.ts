@@ -177,7 +177,7 @@ export const defaultMenuState: MenuState = {
       name: "Сиропы",
       icon: "🍯",
       required: false,
-      selectionType: "multiple",
+      selectionType: "single",
       sortOrder: 20,
       isActive: true,
       options: [
@@ -436,11 +436,15 @@ function extractAddonGroups(state: LegacyMenuState) {
 }
 
 function normalizeAddonGroup(group: AddonGroup): AddonGroup {
+  const defaultGroup = defaultMenuState.addonGroups.find(
+    (currentGroup) => currentGroup.id === group.id,
+  );
+
   return {
     ...group,
     icon: group.icon || "•",
     required: group.required ?? false,
-    selectionType: group.selectionType ?? "single",
+    selectionType: defaultGroup?.selectionType ?? group.selectionType ?? "single",
     sortOrder: group.sortOrder ?? 10,
     isActive: group.isActive ?? true,
     options: group.options.map((option, index) => ({
@@ -453,6 +457,7 @@ function normalizeAddonGroup(group: AddonGroup): AddonGroup {
 }
 
 function normalizeMenuItem(item: MenuItem | LegacyProduct, index: number, addonGroups: AddonGroup[]): MenuItem {
+  const defaultItem = defaultMenuState.menuItems.find((currentItem) => currentItem.id === item.id);
   const legacyVolume = "volume" in item ? item.volume : "";
   const legacyPrice = "price" in item ? item.price : undefined;
   const legacyImage = "image" in item ? item.image : undefined;
@@ -465,6 +470,19 @@ function normalizeMenuItem(item: MenuItem | LegacyProduct, index: number, addonG
     "addonGroupIds" in item && Array.isArray(item.addonGroupIds)
       ? item.addonGroupIds
       : legacyGroupIds.filter((groupId) => addonGroups.some((group) => group.id === groupId));
+  const normalizedAddonGroupIds =
+    addonGroupIds.length > 0 || !defaultItem ? addonGroupIds : defaultItem.addonGroupIds;
+  const normalizedVariants =
+    "variants" in item && Array.isArray(item.variants)
+      ? item.variants.map((variant, variantIndex) => ({
+          ...variant,
+          priceDelta: Number(variant.priceDelta) || 0,
+          sortOrder: variant.sortOrder ?? (variantIndex + 1) * 10,
+          isActive: variant.isActive ?? true,
+        }))
+      : legacyVolume
+        ? [{ id: `${item.id}-default-variant`, name: legacyVolume, priceDelta: 0, sortOrder: 10, isActive: true }]
+        : [];
 
   return {
     id: item.id,
@@ -482,17 +500,10 @@ function normalizeMenuItem(item: MenuItem | LegacyProduct, index: number, addonG
     inStock: item.inStock ?? true,
     sortOrder: "sortOrder" in item && typeof item.sortOrder === "number" ? item.sortOrder : (index + 1) * 10,
     variants:
-      "variants" in item && Array.isArray(item.variants)
-        ? item.variants.map((variant, variantIndex) => ({
-            ...variant,
-            priceDelta: Number(variant.priceDelta) || 0,
-            sortOrder: variant.sortOrder ?? (variantIndex + 1) * 10,
-            isActive: variant.isActive ?? true,
-          }))
-        : legacyVolume
-          ? [{ id: `${item.id}-default-variant`, name: legacyVolume, priceDelta: 0, sortOrder: 10, isActive: true }]
-          : [],
-    addonGroupIds,
+      normalizedVariants.length > 1 || !defaultItem
+        ? normalizedVariants
+        : defaultItem.variants,
+    addonGroupIds: normalizedAddonGroupIds,
   };
 }
 
@@ -537,6 +548,17 @@ export function isMenuItemOrderable(menu: MenuState, item: MenuItem) {
     if (!group?.required) return true;
     return group.options.some((option) => option.isActive);
   });
+}
+
+export function isDemoMenuItem(item: MenuItem) {
+  const values = [item.id, item.name, item.description].join(" ").toLowerCase();
+
+  return (
+    values.includes("test") ||
+    values.includes("demo") ||
+    values.includes("тест") ||
+    values.includes("проверка menu engine")
+  );
 }
 
 export function getDefaultMenuSelection(menu: MenuState, item: MenuItem): MenuSelection {
