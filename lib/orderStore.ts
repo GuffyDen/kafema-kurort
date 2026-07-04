@@ -24,6 +24,7 @@ export type Order = {
   phone: string;
   comment?: string;
   createdAt: string;
+  completedAt?: string;
   statusChangedAt?: number;
   items: OrderItem[];
   status: OrderStatus;
@@ -211,7 +212,12 @@ export function updateOrderStatus(orderId: string, status: OrderStatus) {
 
   setOrders([
     ...orders.filter((order) => order.id !== orderId),
-    { ...targetOrder, status, statusChangedAt: Date.now() },
+    {
+      ...targetOrder,
+      status,
+      statusChangedAt: Date.now(),
+      ...(status === "completed" ? { completedAt: new Date().toISOString() } : {}),
+    },
   ]);
 }
 

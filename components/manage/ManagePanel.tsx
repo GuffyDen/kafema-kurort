@@ -8,6 +8,11 @@ import {
   type IikoConnectionResult,
   type IikoOrganization,
 } from "@/lib/iikoReadOnlyProvider";
+import {
+  getStoredBaristaSettings,
+  saveBaristaSettings,
+  type BaristaSettings,
+} from "@/lib/baristaSettings";
 import { useMenu, type MenuItem } from "@/lib/menuStore";
 
 type AdminSection = "connections" | "storefront" | "barista" | "qr" | "settings";
@@ -23,16 +28,6 @@ type StorefrontOverlay = {
 };
 
 type StorefrontOverlayState = Record<string, StorefrontOverlay>;
-
-type BaristaSettings = {
-  showSource: boolean;
-  online: boolean;
-  cashier: boolean;
-  delivery: boolean;
-  sound: boolean;
-  autoScroll: boolean;
-  cardSize: "compact" | "standard" | "large";
-};
 
 type GeneralSettings = {
   coffeehouseName: string;
@@ -83,15 +78,9 @@ export function ManagePanel() {
   const [overlays, setOverlays] = useState<StorefrontOverlayState>(() =>
     getStoredOverlays(),
   );
-  const [baristaSettings, setBaristaSettings] = useState<BaristaSettings>({
-    showSource: true,
-    online: true,
-    cashier: true,
-    delivery: false,
-    sound: true,
-    autoScroll: true,
-    cardSize: "standard",
-  });
+  const [baristaSettings, setBaristaSettingsState] = useState<BaristaSettings>(() =>
+    getStoredBaristaSettings(),
+  );
   const [generalSettings, setGeneralSettings] = useState<GeneralSettings>({
     coffeehouseName: "Кафема Курорт",
     logoLabel: "КАФЕМА КУРОРТ",
@@ -235,6 +224,11 @@ export function ManagePanel() {
       localStorage.setItem(overlayStorageKey, JSON.stringify(next));
       return next;
     });
+  }
+
+  function setBaristaSettings(settings: BaristaSettings) {
+    setBaristaSettingsState(settings);
+    saveBaristaSettings(settings);
   }
 
   return (
@@ -593,14 +587,18 @@ function WebhookCard({
         </details>
 
         <div className="flex flex-wrap gap-3">
-          <PrimaryButton
-            disabled={!payloadForViewer}
-            onClick={() => setShowPayload(true)}
-          >
-            Показать последнее сообщение
-          </PrimaryButton>
-          <SecondaryButton onClick={onClear}>Очистить журнал</SecondaryButton>
-          <SecondaryButton onClick={onRefresh}>Обновить статус</SecondaryButton>
+          <PrimaryButton onClick={onRefresh}>Обновить статус</PrimaryButton>
+          {hasMessages ? (
+            <>
+              <SecondaryButton
+                disabled={!payloadForViewer}
+                onClick={() => setShowPayload(true)}
+              >
+                Показать последнее сообщение
+              </SecondaryButton>
+              <SecondaryButton onClick={onClear}>Очистить журнал</SecondaryButton>
+            </>
+          ) : null}
         </div>
       </div>
 
