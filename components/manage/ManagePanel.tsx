@@ -59,6 +59,23 @@ type IikoWebhookStatus = {
   requests: IikoWebhookRequestLog[];
 };
 
+type IikoCheckDiagnostics = {
+  ok: boolean;
+  authVersion: "v2";
+  tokenReceived: boolean;
+  selectedOrganizationName: string | null;
+  selectedTerminalGroupName: string | null;
+  categoriesCount: number;
+  productsCount: number;
+  modifiersCount: number;
+  menuReceived: boolean;
+  cache?: {
+    status: string;
+    checkedAt?: string;
+    warning?: string;
+  };
+};
+
 type IikoWebhookRequestLog = {
   id: string;
   receivedAt: string;
@@ -97,6 +114,8 @@ export function ManagePanel() {
   const [activeSection, setActiveSection] = useState<AdminSection>("connections");
   const [isCheckingIiko, setIsCheckingIiko] = useState(false);
   const [iikoResult, setIikoResult] = useState<IikoConnectionResult | null>(null);
+  const [iikoDiagnostics, setIikoDiagnostics] =
+    useState<IikoCheckDiagnostics | null>(null);
   const [iikoError, setIikoError] = useState("");
   const [webhookStatus, setWebhookStatus] = useState<IikoWebhookStatus | null>(null);
   const [showEnvModeWarning, setShowEnvModeWarning] = useState(false);
@@ -201,8 +220,22 @@ export function ManagePanel() {
         headers: { "Content-Type": "application/json" },
       });
       const payload = (await response.json()) as
-        | { ok: true; result: IikoConnectionResult }
-        | { ok: false; error: string };
+        | {
+            ok: true;
+            result: IikoConnectionResult;
+            diagnostics?: IikoCheckDiagnostics;
+          }
+        | {
+            ok: false;
+            error: string;
+            diagnostics?: IikoCheckDiagnostics;
+          };
+
+      setIikoDiagnostics(payload.diagnostics ?? null);
+
+      if (!response.ok) {
+        throw new Error("Сервер диагностики iiko не ответил корректно");
+      }
 
       if (!payload.ok) {
         throw new Error(payload.error);
@@ -218,8 +251,8 @@ export function ManagePanel() {
       setIikoResult(null);
       setIikoError(
         error instanceof Error
-          ? `${error.message}. Приложение продолжает работать с локальными данными.`
-          : "Не удалось проверить iiko. Приложение продолжает работать с локальными данными.",
+          ? error.message
+          : "Не удалось проверить iiko.",
       );
     } finally {
       setIsCheckingIiko(false);
@@ -319,6 +352,7 @@ export function ManagePanel() {
           {activeSection === "connections" ? (
             <ConnectionsSection
               iikoError={iikoError}
+              iikoDiagnostics={iikoDiagnostics}
               iikoResult={iikoResult}
               isCheckingIiko={isCheckingIiko}
               lastSyncAt={lastSyncAt}
@@ -369,6 +403,7 @@ export function ManagePanel() {
 
 function ConnectionsSection({
   iikoError,
+  iikoDiagnostics,
   iikoResult,
   isCheckingIiko,
   lastSyncAt,
@@ -384,6 +419,7 @@ function ConnectionsSection({
   onSyncMenu,
 }: {
   iikoError: string;
+  iikoDiagnostics: IikoCheckDiagnostics | null;
   iikoResult: IikoConnectionResult | null;
   isCheckingIiko: boolean;
   lastSyncAt: string;
@@ -457,6 +493,7 @@ function ConnectionsSection({
                 {iikoError}
               </p>
             ) : null}
+            <IikoDiagnosticsSummary diagnostics={iikoDiagnostics} />
             <PrimaryButton disabled={isCheckingIiko} onClick={onCheckIiko}>
               {isCheckingIiko ? "Проверяем..." : "Проверить подключение"}
             </PrimaryButton>
@@ -492,6 +529,7 @@ function ConnectionsSection({
 
             <ConnectedSummary
               result={iikoResult}
+              diagnostics={iikoDiagnostics}
               selectedOrganization={selectedOrganization}
               lastSyncAt={lastSyncAt}
             />
@@ -770,15 +808,24 @@ function WebhookCard({
 }
 
 function ConnectedSummary({
+  diagnostics,
   result,
   selectedOrganization,
   lastSyncAt,
 }: {
+  diagnostics: IikoCheckDiagnostics | null;
   result: IikoConnectionResult;
   selectedOrganization: IikoOrganization | null;
   lastSyncAt: string;
 }) {
   const organization = selectedOrganization ?? result.organization;
+  const metrics = diagnostics
+    ? {
+        categories: diagnostics.categoriesCount,
+        modifiers: diagnostics.modifiersCount,
+        products: diagnostics.productsCount,
+      }
+    : result.summary;
 
   return (
     <div className="space-y-4">
@@ -786,6 +833,11 @@ function ConnectedSummary({
         <p className="text-lg font-black text-emerald-600">🟢 Подключено</p>
         <div className="mt-4 grid gap-3 md:grid-cols-2">
           <Info label="Организация" value={organization.name} />
+          <Info label="authVersion" value={diagnostics?.authVersion ?? result.authVersion ?? "v2"} />
+          <Info
+            label="tokenReceived"
+            value={(diagnostics?.tokenReceived ?? result.tokenReceived) ? "true" : "false"}
+          />
           <Info label="Версия iiko" value={result.version} />
           <Info
             label="Авторизация"
@@ -799,10 +851,12 @@ function ConnectedSummary({
         </div>
       </div>
 
+      <IikoDiagnosticsSummary diagnostics={diagnostics} />
+
       <div className="grid gap-3 md:grid-cols-5">
-        <Metric label="товаров" value={result.summary.products} />
-        <Metric label="категорий" value={result.summary.categories} />
-        <Metric label="модификаторов" value={result.summary.modifiers} />
+        <Metric label="товаров" value={metrics.products} />
+        <Metric label="категорий" value={metrics.categories} />
+        <Metric label="модификаторов" value={metrics.modifiers} />
         <Metric label="terminal groups" value={result.summary.terminalGroups} />
         <Metric label="стоп-листов" value={result.summary.stopLists} />
       </div>
@@ -819,6 +873,57 @@ function ConnectedSummary({
           <Info label="Секреты" value="Не отображаются" />
         </div>
       </div>
+    </div>
+  );
+}
+
+function IikoDiagnosticsSummary({
+  diagnostics,
+}: {
+  diagnostics: IikoCheckDiagnostics | null;
+}) {
+  if (!diagnostics) return null;
+
+  const productsMissing =
+    diagnostics.tokenReceived &&
+    Boolean(diagnostics.selectedOrganizationName) &&
+    Boolean(diagnostics.selectedTerminalGroupName) &&
+    diagnostics.productsCount === 0;
+
+  return (
+    <div className="rounded-3xl border border-[#E6E6E6] bg-white p-4">
+      <div className="grid gap-3 md:grid-cols-2">
+        <Info label="authVersion" value={diagnostics.authVersion} />
+        <Info label="tokenReceived" value={diagnostics.tokenReceived ? "true" : "false"} />
+        <Info
+          label="organizationName"
+          value={diagnostics.selectedOrganizationName ?? "Не получена"}
+        />
+        <Info
+          label="terminalGroupName"
+          value={diagnostics.selectedTerminalGroupName ?? "Не получена"}
+        />
+        <Info label="categoriesCount" value={String(diagnostics.categoriesCount)} />
+        <Info label="productsCount" value={String(diagnostics.productsCount)} />
+        <Info label="modifiersCount" value={String(diagnostics.modifiersCount)} />
+      </div>
+
+      {productsMissing ? (
+        <p className="mt-4 whitespace-pre-line rounded-2xl bg-[#FFF4D7] px-4 py-3 text-sm font-bold leading-6 text-[#8A6500]">
+          {`Авторизация успешна.
+Организация найдена.
+Терминальная группа найдена.
+iiko не возвращает товары.
+Категорий: ${diagnostics.categoriesCount}.
+Товаров: 0.`}
+        </p>
+      ) : null}
+
+      {diagnostics.cache?.warning ? (
+        <p className="mt-3 rounded-2xl bg-[#FFF4D7] px-4 py-3 text-sm font-bold text-[#8A6500]">
+          {diagnostics.cache.warning}
+        </p>
+      ) : null}
     </div>
   );
 }
