@@ -3,6 +3,7 @@
 import {
   getMenuItemPrice,
   getMenuItemSummary,
+  fallbackImageSrc,
   type MenuItem,
 } from "@/lib/menuStore";
 
@@ -31,6 +32,10 @@ export function ProductCard({ product, onAdd }: ProductCardProps) {
           src={product.imageSrc}
           alt={product.name}
           className="h-full w-full object-cover"
+          onError={(event) => {
+            if (event.currentTarget.src.endsWith(fallbackImageSrc)) return;
+            event.currentTarget.src = fallbackImageSrc;
+          }}
         />
         {!canAdd ? (
           <span className="absolute left-3 top-3 rounded-full bg-[var(--color-card)] px-3 py-1 text-xs font-bold text-[var(--color-text-muted)] shadow-sm">

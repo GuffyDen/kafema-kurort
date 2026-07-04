@@ -139,8 +139,15 @@ const storageKey = "kafema-menu-v3";
 const legacyStorageKeys = ["kafema-menu-v2", "kafema-menu-v1"];
 const channelName = "kafema-menu";
 
-const fallbackImageSrc =
-  "https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?auto=format&fit=crop&w=640&q=85";
+const productImageById: Record<string, string> = {
+  americano: "/products/americano.jpg",
+  cappuccino: "/products/cappuccino.jpg",
+  cheesecake: "/products/cheesecake.jpg",
+  croissant: "/products/croissant.jpg",
+  latte: "/products/latte.jpg",
+};
+
+export const fallbackImageSrc = "/products/cappuccino.jpg";
 
 export const defaultMenuState: MenuState = {
   categories: [
@@ -223,7 +230,7 @@ export const defaultMenuState: MenuState = {
       workingZoneId: "bar",
       kind: "drink",
       basePrice: 230,
-      imageSrc: "https://images.unsplash.com/photo-1572442388796-11668a67e53d?auto=format&fit=crop&w=640&q=85",
+      imageSrc: productImageById.cappuccino,
       sortOrder: 10,
       variants: [
         { id: "cap-300", name: "300 мл", priceDelta: 0, sortOrder: 10, isActive: true },
@@ -239,7 +246,7 @@ export const defaultMenuState: MenuState = {
       workingZoneId: "bar",
       kind: "drink",
       basePrice: 250,
-      imageSrc: "https://images.unsplash.com/photo-1561882468-9110e03e0f78?auto=format&fit=crop&w=640&q=85",
+      imageSrc: productImageById.latte,
       sortOrder: 20,
       variants: [{ id: "latte-350", name: "350 мл", priceDelta: 0, sortOrder: 10, isActive: true }],
       addonGroupIds: ["milk", "syrups", "sugar"],
@@ -252,7 +259,7 @@ export const defaultMenuState: MenuState = {
       workingZoneId: "bar",
       kind: "drink",
       basePrice: 190,
-      imageSrc: "https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?auto=format&fit=crop&w=640&q=85",
+      imageSrc: productImageById.americano,
       sortOrder: 30,
       addonGroupIds: ["sugar"],
     }),
@@ -264,7 +271,7 @@ export const defaultMenuState: MenuState = {
       workingZoneId: "showcase",
       kind: "food",
       basePrice: 210,
-      imageSrc: "https://images.unsplash.com/photo-1555507036-ab1f4038808a?auto=format&fit=crop&w=640&q=85",
+      imageSrc: productImageById.croissant,
       sortOrder: 40,
       addonGroupIds: ["warm"],
     }),
@@ -276,7 +283,7 @@ export const defaultMenuState: MenuState = {
       workingZoneId: "showcase",
       kind: "dessert",
       basePrice: 290,
-      imageSrc: "https://images.unsplash.com/photo-1533134242443-d4fd215305ad?auto=format&fit=crop&w=640&q=85",
+      imageSrc: productImageById.cheesecake,
       sortOrder: 50,
       addonGroupIds: [],
     }),
@@ -488,7 +495,10 @@ function normalizeMenuItem(item: MenuItem | LegacyProduct, index: number, addonG
     id: item.id,
     name: item.name,
     description: "description" in item && item.description ? item.description : legacyVolume || "",
-    imageSrc: item.imageSrc || legacyImage || fallbackImageSrc,
+    imageSrc: normalizeMenuItemImageSrc(
+      item.id,
+      item.imageSrc || legacyImage || defaultItem?.imageSrc || fallbackImageSrc,
+    ),
     categoryId: item.categoryId,
     workingZoneId:
       ("workingZoneId" in item && item.workingZoneId) ||
@@ -505,6 +515,14 @@ function normalizeMenuItem(item: MenuItem | LegacyProduct, index: number, addonG
         : defaultItem.variants,
     addonGroupIds: normalizedAddonGroupIds,
   };
+}
+
+function normalizeMenuItemImageSrc(itemId: string, imageSrc: string) {
+  if (!imageSrc || imageSrc.includes("images.unsplash.com")) {
+    return productImageById[itemId] ?? fallbackImageSrc;
+  }
+
+  return imageSrc;
 }
 
 export function getMenuItemPrice(item: MenuItem) {

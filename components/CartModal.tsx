@@ -2,7 +2,7 @@
 
 import { BackgroundDecor } from "@/components/BackgroundDecor";
 import type { Product } from "@/components/ProductCard";
-import type { MenuSelection } from "@/lib/menuStore";
+import { fallbackImageSrc, type MenuSelection } from "@/lib/menuStore";
 
 export type CartItem = {
   id: string;
@@ -75,6 +75,10 @@ export function CartModal({
                     src={item.product.imageSrc}
                     alt={item.product.name}
                     className="h-full w-full object-cover"
+                    onError={(event) => {
+                      if (event.currentTarget.src.endsWith(fallbackImageSrc)) return;
+                      event.currentTarget.src = fallbackImageSrc;
+                    }}
                   />
                 </div>
 
