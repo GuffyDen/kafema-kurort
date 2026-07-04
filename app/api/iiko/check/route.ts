@@ -1,4 +1,31 @@
-import { checkIikoConnectionReal } from "@/lib/iikoCloudClient";
+import {
+  checkIikoConnectionReadOnly,
+  checkIikoConnectionReal,
+} from "@/lib/iikoCloudClient";
+
+export async function GET() {
+  const check = await checkIikoConnectionReadOnly();
+
+  return Response.json(
+    {
+      ok: check.ok,
+      tokenReceived: check.tokenReceived,
+      organizationsCount: check.organizationsCount,
+      selectedOrganizationId: check.selectedOrganizationId,
+      selectedOrganizationName: check.selectedOrganizationName,
+      terminalGroupId: check.terminalGroupId,
+      terminalGroupFound: check.terminalGroupFound,
+      menuReceived: check.menuReceived,
+      counts: check.counts,
+      endpoints: check.endpoints,
+      errors: check.errors.map((error) => ({
+        ...error,
+        message: sanitizeIikoError(error.message),
+      })),
+    },
+    { status: 200 },
+  );
+}
 
 export async function POST() {
   try {
