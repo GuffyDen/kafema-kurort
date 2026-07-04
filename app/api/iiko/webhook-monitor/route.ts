@@ -36,7 +36,9 @@ function createMonitorStatus() {
       process.env.NODE_ENV === "production" && !tokenConfigured
         ? "IIKO_WEBHOOK_TOKEN is not configured in production"
         : null,
+    totalRequests: state.totalRequests,
     totalReceived: state.totalReceived,
+    totalErrors: state.totalErrors,
     lastWebhookReceivedAt: state.lastEvent?.receivedAt ?? null,
     lastEventType: state.lastEvent?.eventType ?? null,
     lastOrderId: state.lastEvent?.orderId ?? null,
@@ -45,9 +47,11 @@ function createMonitorStatus() {
       ? formatHttpStatus(lastAttempt.httpStatus, lastAttempt.httpStatusText)
       : null,
     lastClientIp: lastAttempt?.clientIp ?? null,
+    lastUserAgent: state.requests[0]?.userAgent ?? null,
     lastError: state.lastError,
     lastPayload: state.lastEvent?.rawPayload ?? null,
     lastMessage: state.lastEvent ?? null,
+    requests: state.requests.slice(0, 20),
   };
 }
 

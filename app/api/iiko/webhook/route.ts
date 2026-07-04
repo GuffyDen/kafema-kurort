@@ -1,26 +1,71 @@
 import {
+  extractIikoWebhookFields,
   getIikoWebhookState,
-  saveIikoWebhookError,
-  saveIikoWebhookEvent,
+  saveIikoWebhookRequest,
 } from "@/lib/iikoWebhookStore";
 
 export const dynamic = "force-dynamic";
 
 const defaultAppUrl = "https://kafema-kurort.vercel.app";
 
-export async function GET() {
-  return Response.json(createWebhookStatus());
+export async function GET(request: Request) {
+  const responseBody = createWebhookStatus();
+  saveRequestLog(request, {
+    error: null,
+    httpStatus: 200,
+    httpStatusText: "OK",
+    parsedJson: null,
+    rawBody: null,
+    success: false,
+  });
+
+  return Response.json(responseBody);
+}
+
+export async function HEAD(request: Request) {
+  saveRequestLog(request, {
+    error: null,
+    httpStatus: 200,
+    httpStatusText: "OK",
+    parsedJson: null,
+    rawBody: null,
+    success: false,
+  });
+
+  return new Response(null, { status: 200 });
+}
+
+export async function OPTIONS(request: Request) {
+  saveRequestLog(request, {
+    error: null,
+    httpStatus: 200,
+    httpStatusText: "OK",
+    parsedJson: null,
+    rawBody: null,
+    success: false,
+  });
+
+  return new Response(null, {
+    headers: {
+      Allow: "GET, HEAD, OPTIONS, POST",
+    },
+    status: 200,
+  });
 }
 
 export async function POST(request: Request) {
-  const clientIp = getClientIp(request);
+  const rawBody = await readRawBody(request);
+  const parsedPayload = parseJsonPayload(rawBody);
   const auth = validateWebhookToken(request);
 
   if (!auth.ok) {
-    saveIikoWebhookError(auth.error, {
+    saveRequestLog(request, {
+      error: auth.error,
       httpStatus: 401,
       httpStatusText: "Unauthorized",
-      clientIp,
+      parsedJson: parsedPayload.ok ? parsedPayload.data : null,
+      rawBody,
+      success: false,
     });
 
     return Response.json(
@@ -32,41 +77,85 @@ export async function POST(request: Request) {
     );
   }
 
-  const payload = await readJsonPayload(request);
-
-  if (!payload.ok) {
-    saveIikoWebhookError(payload.error, {
-      httpStatus: 200,
-      httpStatusText: "OK",
-      clientIp,
+  if (!parsedPayload.ok) {
+    saveRequestLog(request, {
+      error: parsedPayload.error,
+      httpStatus: 400,
+      httpStatusText: "Bad Request",
+      parsedJson: null,
+      rawBody,
+      success: false,
     });
 
-    return Response.json({
-      ok: true,
-      accepted: true,
-      warning: payload.error,
-    });
+    return Response.json(
+      {
+        ok: false,
+        error: parsedPayload.error,
+      },
+      { status: 400 },
+    );
   }
 
-  const snapshot = saveIikoWebhookEvent(payload.data, {
+  const requestLog = saveRequestLog(request, {
+    error: null,
     httpStatus: 200,
     httpStatusText: "OK",
-    clientIp,
+    parsedJson: parsedPayload.data,
+    rawBody,
+    success: true,
   });
 
   console.info("iiko webhook received", {
-    eventType: snapshot.eventType,
-    orderId: snapshot.orderId,
-    status: snapshot.status,
-    timestamp: snapshot.timestamp,
+    eventType: requestLog.eventType,
+    orderId: requestLog.orderId,
+    status: requestLog.orderStatus,
+    timestamp: requestLog.receivedAt,
   });
 
   return Response.json({
     ok: true,
     accepted: true,
-    eventType: snapshot.eventType,
-    orderId: snapshot.orderId,
-    status: snapshot.status,
+    eventType: requestLog.eventType,
+    orderId: requestLog.orderId,
+    status: requestLog.orderStatus,
+  });
+}
+
+function saveRequestLog(
+  request: Request,
+  result: {
+    error: string | null;
+    httpStatus: number;
+    httpStatusText: string;
+    parsedJson: unknown | null;
+    rawBody: string | null;
+    success: boolean;
+  },
+) {
+  const url = new URL(request.url);
+  const fields = result.parsedJson
+    ? extractIikoWebhookFields(result.parsedJson)
+    : { eventType: null, orderId: null, orderStatus: null };
+
+  return saveIikoWebhookRequest({
+    clientIp: getClientIp(request),
+    contentType: request.headers.get("content-type"),
+    error: result.error,
+    eventType: fields.eventType,
+    hasAuthorization: Boolean(request.headers.get("authorization")),
+    hasHeaderToken: Boolean(request.headers.get("x-iiko-webhook-token")),
+    hasQueryToken: Boolean(url.searchParams.get("token")),
+    headers: getSafeHeaders(request),
+    httpStatus: result.httpStatus,
+    httpStatusText: result.httpStatusText,
+    method: request.method,
+    orderId: fields.orderId,
+    orderStatus: fields.orderStatus,
+    parsedJson: result.parsedJson,
+    path: url.pathname,
+    rawBody: result.rawBody,
+    success: result.success,
+    userAgent: request.headers.get("user-agent"),
   });
 }
 
@@ -74,6 +163,7 @@ function createWebhookStatus() {
   const state = getIikoWebhookState();
   const tokenConfigured = Boolean(process.env.IIKO_WEBHOOK_TOKEN);
   const appUrl = trimTrailingSlash(process.env.NEXT_PUBLIC_APP_URL || defaultAppUrl);
+  const lastAttempt = state.lastAttempt;
 
   return {
     status: "ok",
@@ -84,19 +174,18 @@ function createWebhookStatus() {
       process.env.NODE_ENV === "production" && !tokenConfigured
         ? "IIKO_WEBHOOK_TOKEN is not configured in production"
         : null,
+    totalRequests: state.totalRequests,
+    totalReceived: state.totalReceived,
+    totalErrors: state.totalErrors,
     lastWebhookReceivedAt: state.lastEvent?.receivedAt ?? null,
     lastEventType: state.lastEvent?.eventType ?? null,
     lastOrderId: state.lastEvent?.orderId ?? null,
     lastOrderStatus: state.lastEvent?.status ?? null,
-    lastHttpStatus: state.lastAttempt
-      ? formatHttpStatus(state.lastAttempt.httpStatus, state.lastAttempt.httpStatusText)
+    lastHttpStatus: lastAttempt
+      ? formatHttpStatus(lastAttempt.httpStatus, lastAttempt.httpStatusText)
       : null,
-    lastClientIp: state.lastAttempt?.clientIp ?? null,
-    totalReceived: state.totalReceived,
+    lastClientIp: lastAttempt?.clientIp ?? null,
     lastError: state.lastError,
-    ...(process.env.NODE_ENV !== "production" && state.lastEvent?.rawPayload
-      ? { rawPayload: state.lastEvent.rawPayload }
-      : {}),
   };
 }
 
@@ -123,9 +212,16 @@ function validateWebhookToken(request: Request) {
   };
 }
 
-async function readJsonPayload(request: Request) {
+async function readRawBody(request: Request) {
   try {
-    const text = await request.text();
+    return await request.text();
+  } catch {
+    return "";
+  }
+}
+
+function parseJsonPayload(text: string) {
+  try {
     if (!text.trim()) return { ok: true as const, data: {} };
     return { ok: true as const, data: JSON.parse(text) as unknown };
   } catch {
@@ -134,6 +230,17 @@ async function readJsonPayload(request: Request) {
       error: "Invalid JSON payload",
     };
   }
+}
+
+function getSafeHeaders(request: Request) {
+  return {
+    authorizationPresent: Boolean(request.headers.get("authorization")),
+    contentType: request.headers.get("content-type"),
+    userAgent: request.headers.get("user-agent"),
+    xForwardedFor: request.headers.get("x-forwarded-for"),
+    xIikoWebhookTokenPresent: Boolean(request.headers.get("x-iiko-webhook-token")),
+    xRealIp: request.headers.get("x-real-ip"),
+  };
 }
 
 function trimTrailingSlash(value: string) {

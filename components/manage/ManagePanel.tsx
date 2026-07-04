@@ -43,16 +43,43 @@ type IikoWebhookStatus = {
   webhookUrl: string;
   tokenConfigured: boolean;
   warning: string | null;
+  totalRequests: number;
   totalReceived: number;
+  totalErrors: number;
   lastWebhookReceivedAt: string | null;
   lastEventType: string | null;
   lastOrderId: string | null;
   lastOrderStatus: string | null;
   lastHttpStatus: string | null;
   lastClientIp: string | null;
+  lastUserAgent: string | null;
   lastError: string | null;
   lastPayload: unknown | null;
   lastMessage: unknown | null;
+  requests: IikoWebhookRequestLog[];
+};
+
+type IikoWebhookRequestLog = {
+  id: string;
+  receivedAt: string;
+  method: string;
+  path: string;
+  clientIp: string | null;
+  userAgent: string | null;
+  contentType: string | null;
+  hasAuthorization: boolean;
+  hasHeaderToken: boolean;
+  hasQueryToken: boolean;
+  httpStatus: number;
+  httpStatusText: string;
+  success: boolean;
+  error: string | null;
+  eventType: string | null;
+  orderId: string | null;
+  orderStatus: string | null;
+  rawBody: string | null;
+  parsedJson: unknown | null;
+  headers: Record<string, string | boolean | null>;
 };
 
 const navItems: Array<{ id: AdminSection; label: string; hint: string }> = [
@@ -115,16 +142,20 @@ export function ManagePanel() {
         webhookUrl: "https://kafema-kurort.vercel.app/api/iiko/webhook",
         tokenConfigured: false,
         warning: null,
+        totalRequests: 0,
         totalReceived: 0,
+        totalErrors: 0,
         lastWebhookReceivedAt: null,
         lastEventType: null,
         lastOrderId: null,
         lastOrderStatus: null,
         lastHttpStatus: null,
         lastClientIp: null,
+        lastUserAgent: null,
         lastError: "Не удалось получить статус событий iiko",
         lastPayload: null,
         lastMessage: null,
+        requests: [],
       });
     }
   }
@@ -141,15 +172,19 @@ export function ManagePanel() {
           current?.webhookUrl ?? "https://kafema-kurort.vercel.app/api/iiko/webhook",
         tokenConfigured: current?.tokenConfigured ?? false,
         warning: current?.warning ?? null,
+        totalRequests: current?.totalRequests ?? 0,
         totalReceived: current?.totalReceived ?? 0,
+        totalErrors: current?.totalErrors ?? 0,
         lastWebhookReceivedAt: current?.lastWebhookReceivedAt ?? null,
         lastEventType: current?.lastEventType ?? null,
         lastOrderId: current?.lastOrderId ?? null,
         lastOrderStatus: current?.lastOrderStatus ?? null,
         lastHttpStatus: current?.lastHttpStatus ?? null,
         lastClientIp: current?.lastClientIp ?? null,
+        lastUserAgent: current?.lastUserAgent ?? null,
         lastPayload: current?.lastPayload ?? null,
         lastMessage: current?.lastMessage ?? null,
+        requests: current?.requests ?? [],
         lastError: "Не удалось очистить журнал iiko",
       }));
     }
@@ -500,15 +535,21 @@ function WebhookCard({
   status: IikoWebhookStatus | null;
 }) {
   const [showPayload, setShowPayload] = useState(false);
+  const [selectedRequest, setSelectedRequest] =
+    useState<IikoWebhookRequestLog | null>(null);
   const webhookUrl =
     status?.webhookUrl ?? "https://kafema-kurort.vercel.app/api/iiko/webhook";
   const curlExample = `curl -X POST ${webhookUrl} \\
   -H "Content-Type: application/json" \\
   -H "X-Iiko-Webhook-Token: <token>" \\
   -d '{"eventType":"OrderUpdated","orderId":"demo-order","status":"NEW"}'`;
-  const totalReceived = status?.totalReceived ?? 0;
-  const hasMessages = totalReceived > 0;
+  const totalRequests = status?.totalRequests ?? 0;
+  const successfulEvents = status?.totalReceived ?? 0;
+  const totalErrors = status?.totalErrors ?? 0;
+  const hasRequests = totalRequests > 0;
+  const hasMessages = successfulEvents > 0;
   const payloadForViewer = status?.lastPayload ?? status?.lastMessage ?? null;
+  const requestJournal = status?.requests ?? [];
 
   return (
     <Card>
@@ -532,17 +573,29 @@ function WebhookCard({
           </p>
           {hasMessages ? (
             <p className="mt-2 text-sm font-bold text-[#777777]">
-              Последнее сообщение:{" "}
+              Webhook принимает события. Последнее успешное событие:{" "}
               <span className="text-[#1A1A1A]">
                 {formatWebhookDate(status?.lastWebhookReceivedAt)}
               </span>
             </p>
+          ) : hasRequests ? (
+            <div className="mt-4 rounded-[28px] border border-[#F4D6D8] bg-[#E30613]/5 p-5">
+              <p className="text-lg font-black text-[#E30613]">
+                Webhook вызывается, но успешных событий пока нет
+              </p>
+              <p className="mt-2 text-sm leading-6 text-[#777777]">
+                iiko или клиент обращается к webhook, но запросы не проходят
+                проверку. Смотрите журнал ошибок ниже.
+              </p>
+            </div>
           ) : (
             <div className="mt-4 rounded-[28px] border border-dashed border-[#DADADA] bg-white p-5">
-              <p className="text-lg font-black">Сообщений от iiko пока нет</p>
+              <p className="text-lg font-black">
+                Webhook еще ни разу не вызывался
+              </p>
               <p className="mt-2 text-sm leading-6 text-[#777777]">
-                Ожидаем первое сообщение от iiko. После подключения URI и
-                создания тестового заказа информация появится автоматически.
+                Как только на URL придет любой GET, POST, запрос без токена или
+                запрос с ошибкой, он появится в журнале.
               </p>
             </div>
           )}
@@ -553,16 +606,80 @@ function WebhookCard({
             label="Защитный токен"
             value={status?.tokenConfigured ? "Настроен" : "Не настроен"}
           />
-          <Info label="Всего получено сообщений" value={String(totalReceived)} />
+          <Info label="Всего обращений к webhook" value={String(totalRequests)} />
+          <Info label="Успешно принятых событий" value={String(successfulEvents)} />
+          <Info label="Ошибочных обращений" value={String(totalErrors)} />
           <Info
-            label="Последний тип события"
-            value={status?.lastEventType ?? "Unknown"}
+            label="Последнее обращение"
+            value={formatWebhookDate(requestJournal[0]?.receivedAt)}
           />
-          <Info label="Последний orderId" value={status?.lastOrderId ?? "Нет"} />
           <Info label="Последний HTTP Status" value={status?.lastHttpStatus ?? "Нет"} />
-          <Info label="Последний IP клиента" value={status?.lastClientIp ?? "Нет"} />
-          <Info label="Статус заказа" value={status?.lastOrderStatus ?? "Нет"} />
+          <Info label="Последний IP" value={status?.lastClientIp ?? "Нет"} />
+          <Info label="Последний User-Agent" value={status?.lastUserAgent ?? "Нет"} />
           <Info label="Последняя ошибка" value={status?.lastError ?? "Нет"} />
+          <Info label="Последний тип события" value={status?.lastEventType ?? "Unknown"} />
+          <Info label="Последний orderId" value={status?.lastOrderId ?? "Нет"} />
+          <Info label="Статус заказа" value={status?.lastOrderStatus ?? "Нет"} />
+        </div>
+
+        <div className="rounded-3xl border border-[#E6E6E6] bg-white p-4">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <h3 className="font-black">Последние обращения</h3>
+              <p className="mt-1 text-sm font-semibold text-[#777777]">
+                Последние 20 запросов к /api/iiko/webhook.
+              </p>
+            </div>
+            <span className="rounded-full bg-[#F7F7F7] px-3 py-1.5 text-sm font-black text-[#777777]">
+              {requestJournal.length}
+            </span>
+          </div>
+
+          {requestJournal.length > 0 ? (
+            <div className="mt-4 divide-y divide-[#EFEFEF] overflow-hidden rounded-[24px] border border-[#EFEFEF]">
+              {requestJournal.map((requestLog) => (
+                <button
+                  key={requestLog.id}
+                  type="button"
+                  className="grid w-full grid-cols-[132px_72px_92px_96px_minmax(120px,1fr)_minmax(120px,1fr)] items-center gap-3 bg-white px-4 py-3 text-left text-sm font-bold transition hover:bg-[#F7F7F7]"
+                  onClick={() => setSelectedRequest(requestLog)}
+                >
+                  <span className="text-[#777777]">
+                    {formatWebhookDate(requestLog.receivedAt)}
+                  </span>
+                  <span>{requestLog.method}</span>
+                  <span
+                    className={
+                      requestLog.httpStatus >= 400
+                        ? "text-[#E30613]"
+                        : "text-emerald-700"
+                    }
+                  >
+                    {requestLog.httpStatus}
+                  </span>
+                  <span
+                    className={`rounded-full px-2.5 py-1 text-center text-xs ${
+                      requestLog.success
+                        ? "bg-emerald-50 text-emerald-700"
+                        : "bg-[#E30613]/10 text-[#E30613]"
+                    }`}
+                  >
+                    {requestLog.success ? "success" : "error"}
+                  </span>
+                  <span className="truncate">
+                    {requestLog.eventType ?? requestLog.error ?? "Unknown"}
+                  </span>
+                  <span className="truncate text-[#777777]">
+                    {requestLog.orderId ?? requestLog.clientIp ?? "Без orderId"}
+                  </span>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="mt-4 rounded-[24px] border border-dashed border-[#DADADA] bg-[#F7F7F7] p-5 text-sm font-bold text-[#777777]">
+              Журнал пуст. Webhook еще ни разу не вызывался.
+            </div>
+          )}
         </div>
 
         <details className="rounded-3xl border border-[#E6E6E6] bg-[#F7F7F7] p-4">
@@ -588,7 +705,7 @@ function WebhookCard({
 
         <div className="flex flex-wrap gap-3">
           <PrimaryButton onClick={onRefresh}>Обновить статус</PrimaryButton>
-          {hasMessages ? (
+          {hasRequests ? (
             <>
               <SecondaryButton
                 disabled={!payloadForViewer}
@@ -606,6 +723,33 @@ function WebhookCard({
         <JsonViewerModal
           payload={payloadForViewer}
           onClose={() => setShowPayload(false)}
+        />
+      ) : null}
+      {selectedRequest ? (
+        <JsonViewerModal
+          payload={{
+            error: selectedRequest.error,
+            headers: selectedRequest.headers,
+            parsedJson: selectedRequest.parsedJson,
+            rawBody: selectedRequest.rawBody,
+            request: {
+              clientIp: selectedRequest.clientIp,
+              contentType: selectedRequest.contentType,
+              eventType: selectedRequest.eventType,
+              hasAuthorization: selectedRequest.hasAuthorization,
+              hasHeaderToken: selectedRequest.hasHeaderToken,
+              hasQueryToken: selectedRequest.hasQueryToken,
+              httpStatus: selectedRequest.httpStatus,
+              httpStatusText: selectedRequest.httpStatusText,
+              method: selectedRequest.method,
+              orderId: selectedRequest.orderId,
+              path: selectedRequest.path,
+              receivedAt: selectedRequest.receivedAt,
+              success: selectedRequest.success,
+              userAgent: selectedRequest.userAgent,
+            },
+          }}
+          onClose={() => setSelectedRequest(null)}
         />
       ) : null}
     </Card>
