@@ -325,6 +325,7 @@ export function ManagePanel() {
               selectedOrganization={selectedOrganization}
               selectedOrganizationId={selectedOrganizationId}
               showEnvModeWarning={showEnvModeWarning}
+              syncSummary={syncSummary}
               setSelectedOrganizationId={setSelectedOrganizationId}
               webhookStatus={webhookStatus}
               onCheckIiko={checkIikoConnection}
@@ -360,7 +361,6 @@ export function ManagePanel() {
             />
           ) : null}
 
-          <ReadOnlyAudit summary={syncSummary} />
         </section>
       </div>
     </main>
@@ -375,6 +375,7 @@ function ConnectionsSection({
   selectedOrganization,
   selectedOrganizationId,
   showEnvModeWarning,
+  syncSummary,
   webhookStatus,
   setSelectedOrganizationId,
   onCheckIiko,
@@ -389,6 +390,7 @@ function ConnectionsSection({
   selectedOrganization: IikoOrganization | null;
   selectedOrganizationId: string;
   showEnvModeWarning: boolean;
+  syncSummary: { products: number; categories: number; modifiers: number; terminalGroups: number; stopLists: number };
   webhookStatus: IikoWebhookStatus | null;
   setSelectedOrganizationId: (value: string) => void;
   onCheckIiko: () => void;
@@ -521,6 +523,8 @@ function ConnectionsSection({
         onClear={onClearWebhook}
         onRefresh={onRefreshWebhook}
       />
+
+      <DeveloperDiagnostics summary={syncSummary} />
     </div>
   );
 }
@@ -1118,15 +1122,17 @@ function SettingsSection({
   );
 }
 
-function ReadOnlyAudit({ summary }: { summary: { products: number; categories: number; modifiers: number; terminalGroups: number; stopLists: number } }) {
+function DeveloperDiagnostics({ summary }: { summary: { products: number; categories: number; modifiers: number; terminalGroups: number; stopLists: number } }) {
   return (
-    <details className="mt-6 rounded-[28px] border border-[#E6E6E6] bg-white p-5">
-      <summary className="cursor-pointer text-lg font-black">Диагностика</summary>
+    <details className="xl:col-span-2 rounded-[28px] border border-[#E6E6E6] bg-white p-5">
+      <summary className="cursor-pointer text-lg font-black">
+        Для разработчика
+      </summary>
       <div className="mt-4 flex items-start justify-between gap-4">
         <div>
-          <h2 className="text-lg font-black">iiko request audit</h2>
+          <h2 className="text-lg font-black">Расширенная диагностика iiko</h2>
           <p className="mt-1 text-sm text-[#777777]">
-            В текущем этапе разрешены только read-only операции.
+            Служебная информация для проверки интеграции и разрешенных запросов.
           </p>
         </div>
         <span className="rounded-full bg-emerald-50 px-3 py-1.5 text-sm font-black text-emerald-700">
