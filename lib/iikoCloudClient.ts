@@ -8,8 +8,11 @@ import {
 
 type IikoClientConfig = {
   apiBaseUrl: string;
-  apiLogin: string;
+  apiRootUrl: string;
+  legacyApiLogin: string;
   apiKey: string;
+  appId: string;
+  clientSecret: string;
   terminalGroupId: string;
 };
 
@@ -23,25 +26,48 @@ export type IikoEndpointCheck = {
   error?: string;
 };
 
+export type IikoTerminalGroupDiagnostic = {
+  organizationId: string | null;
+  organizationName: string | null;
+  terminalGroupId: string;
+  terminalGroupName: string | null;
+  terminalGroupAddress: string | null;
+  isDeleted: boolean | null;
+  status: string | null;
+};
+
 export type IikoReadOnlyCheckResult = {
   ok: boolean;
+  authVersion: "v2";
   tokenReceived: boolean;
+  authHttpStatus: number | null;
+  authError: string | null;
   organizationsCount: number;
   selectedOrganizationId: string | null;
   selectedOrganizationName: string | null;
-  terminalGroupId: string | null;
+  terminalGroupsCount: number;
   terminalGroupFound: boolean;
+  terminalGroupId: string | null;
+  selectedTerminalGroupId: string | null;
+  selectedTerminalGroupName: string | null;
+  availableTerminalGroups: IikoTerminalGroupDiagnostic[];
   menuReceived: boolean;
+  productsCount: number;
+  categoriesCount: number;
+  modifiersCount: number;
   counts: IikoSyncSummary;
   endpoints: IikoEndpointCheck[];
-  errors: Array<{
+  rawErrors: IikoCheckError[];
+  errors: IikoCheckError[];
+  result?: IikoConnectionResult;
+};
+
+type IikoCheckError = {
     step: string;
     endpoint?: string;
     status?: number;
     message: string;
     response?: unknown;
-  }>;
-  result?: IikoConnectionResult;
 };
 
 type IikoApiOrganization = {
@@ -51,8 +77,25 @@ type IikoApiOrganization = {
 
 type IikoApiTerminalGroup = {
   id?: string;
+  terminalGroupId?: string;
+  name?: string;
+  terminalGroupName?: string;
+  organizationId?: string;
+  organizationName?: string;
+  address?: string | null;
+  terminalGroupAddress?: string | null;
+  isDeleted?: boolean | null;
+  deleted?: boolean | null;
+  status?: string | null;
+  items?: IikoApiTerminalGroup[];
+};
+
+type IikoApiTerminalGroupsOrganization = {
+  id?: string;
   name?: string;
   organizationId?: string;
+  organizationName?: string;
+  terminalGroups?: IikoApiTerminalGroup[];
 };
 
 type IikoApiProduct = {
@@ -66,7 +109,7 @@ type IikoApiProduct = {
 type IikoApiGroup = {
   id?: string;
   name?: string;
-  items?: IikoApiGroup[];
+  items?: Array<IikoApiGroup | IikoApiProduct>;
 };
 
 type IikoApiNomenclature = {
@@ -83,18 +126,29 @@ type IikoApiStopLists = {
 const defaultBaseUrl = "https://api-ru.iiko.services/api/1";
 
 export function createIikoConfig(input?: Partial<IikoConnectionInput>): IikoClientConfig {
+  const apiBaseUrl = trimTrailingSlash(
+    process.env.IIKO_API_BASE_URL || defaultBaseUrl,
+  );
+
   return {
-    apiBaseUrl: trimTrailingSlash(
-      process.env.IIKO_API_BASE_URL || defaultBaseUrl,
-    ),
-    apiLogin: input?.apiLogin?.trim() || process.env.IIKO_API_LOGIN?.trim() || "",
+    apiBaseUrl,
+    apiRootUrl: deriveApiRootUrl(apiBaseUrl),
+    legacyApiLogin:
+      input?.apiLogin?.trim() || process.env.IIKO_API_LOGIN?.trim() || "",
     apiKey: input?.apiKey?.trim() || process.env.IIKO_API_KEY?.trim() || "",
+    appId: process.env.IIKO_APP_ID?.trim() || "",
+    clientSecret: process.env.IIKO_CLIENT_SECRET?.trim() || "",
     terminalGroupId: process.env.IIKO_TERMINAL_GROUP_ID?.trim() || "",
   };
 }
 
 export function hasIikoCredentials(config: IikoClientConfig) {
-  return Boolean(config.apiLogin && config.apiKey);
+  return Boolean(
+    config.apiKey &&
+      config.appId &&
+      config.clientSecret &&
+      config.terminalGroupId,
+  );
 }
 
 export async function checkIikoConnectionReal(
@@ -116,27 +170,17 @@ export async function checkIikoConnectionReadOnly(
 ): Promise<IikoReadOnlyCheckResult> {
   const config = createIikoConfig(input);
   const endpoints: IikoEndpointCheck[] = [];
-  const errors: IikoReadOnlyCheckResult["errors"] = [];
+  const errors: IikoCheckError[] = [];
   const emptyCounts = createSummary(null, 0, null);
+  const baseResult = createBaseCheckResult(config, emptyCounts, endpoints, errors);
+  const credentialErrors = getMissingCredentialErrors(config);
 
-  if (!config.apiKey) {
+  if (credentialErrors.length > 0) {
+    errors.push(...credentialErrors);
     return {
-      ok: false,
-      tokenReceived: false,
-      organizationsCount: 0,
-      selectedOrganizationId: null,
-      selectedOrganizationName: null,
-      terminalGroupId: config.terminalGroupId || null,
-      terminalGroupFound: false,
-      menuReceived: false,
-      counts: emptyCounts,
-      endpoints,
-      errors: [
-        {
-          step: "credentials",
-          message: "Ожидаю IIKO_API_KEY в серверных переменных окружения",
-        },
-      ],
+      ...baseResult,
+      errors,
+      rawErrors: errors,
     };
   }
 
@@ -148,31 +192,68 @@ export async function checkIikoConnectionReadOnly(
       throw new Error("iiko не вернула ни одной организации");
     }
 
-    const selectedOrganization =
-      organizations.length === 1 ? organizations[0] : organizations[0];
     const terminalGroups = await getTerminalGroups(
       config,
       token,
       organizations,
       endpoints,
     );
-    const configuredTerminalGroup = config.terminalGroupId
-      ? terminalGroups.find((group) => group.id === config.terminalGroupId)
-      : null;
-    const organizationTerminalGroup = terminalGroups.find(
-      (group) => group.organizationId === selectedOrganization.id,
+    const terminalGroup = terminalGroups.find(
+      (group) => group.id === config.terminalGroupId,
     );
-    const terminalGroup = configuredTerminalGroup ?? organizationTerminalGroup;
+    const availableTerminalGroups = createTerminalGroupDiagnostics(
+      terminalGroups,
+      organizations,
+    );
+
+    if (!terminalGroup) {
+      const partialCounts = createSummary(null, terminalGroups.length, null);
+      const terminalGroupError = {
+        step: "terminal_groups",
+        endpoint: "/api/1/terminal_groups",
+        message: `TerminalGroupId ${config.terminalGroupId} не найден среди доступных terminal groups`,
+      };
+      errors.push(terminalGroupError);
+
+      return {
+        ...baseResult,
+        counts: partialCounts,
+        tokenReceived: true,
+        authHttpStatus: getEndpointStatus(endpoints, "/api/v2/access_token"),
+        authError: null,
+        organizationsCount: organizations.length,
+        terminalGroupsCount: terminalGroups.length,
+        terminalGroupFound: false,
+        terminalGroupId: config.terminalGroupId,
+        availableTerminalGroups,
+        endpoints,
+        errors,
+        rawErrors: errors,
+      };
+    }
+
+    const selectedOrganization = selectOrganizationByTerminalGroup(
+      organizations,
+      terminalGroup,
+    );
+
+    if (!selectedOrganization) {
+      throw new Error(
+        `Не удалось определить организацию для terminalGroupId ${config.terminalGroupId}`,
+      );
+    }
+
     const menu = await getMenu(config, token, selectedOrganization.id, endpoints);
     const summary = createSummary(menu, terminalGroups.length, null);
     const result: IikoConnectionResult = {
       status: "connected",
       mode: "real",
+      authVersion: "v2",
       tokenReceived: Boolean(token),
       menuReceived: Boolean(menu),
       organization: {
         ...selectedOrganization,
-        terminalGroupId: terminalGroup?.id,
+        terminalGroupId: terminalGroup.id,
       },
       organizations: organizations.map((organization) => ({
         ...organization,
@@ -180,44 +261,50 @@ export async function checkIikoConnectionReadOnly(
           (group) => group.organizationId === organization.id,
         )?.id,
       })),
-      version: "Cloud API v1",
+      version: "Cloud API v2 auth + v1 nomenclature",
       lastSyncAt: formatSyncTime(),
       summary,
     };
 
     return {
       ok: true,
+      authVersion: "v2",
       tokenReceived: true,
+      authHttpStatus: getEndpointStatus(endpoints, "/api/v2/access_token"),
+      authError: null,
       organizationsCount: organizations.length,
       selectedOrganizationId: selectedOrganization.id,
       selectedOrganizationName: selectedOrganization.name,
-      terminalGroupId: config.terminalGroupId || terminalGroup?.id || null,
-      terminalGroupFound: config.terminalGroupId
-        ? Boolean(configuredTerminalGroup)
-        : Boolean(terminalGroup),
+      terminalGroupsCount: terminalGroups.length,
+      terminalGroupFound: true,
+      terminalGroupId: config.terminalGroupId,
+      selectedTerminalGroupId: terminalGroup.id ?? null,
+      selectedTerminalGroupName: terminalGroup.name ?? null,
+      availableTerminalGroups,
       menuReceived: true,
+      productsCount: summary.products,
+      categoriesCount: summary.categories,
+      modifiersCount: summary.modifiers,
       counts: summary,
       endpoints,
       errors,
+      rawErrors: errors,
       result,
     };
   } catch (error) {
     errors.push(createCheckError(error));
+    const authEndpoint = endpoints.find(
+      (endpoint) => endpoint.endpoint === "/api/v2/access_token",
+    );
 
     return {
-      ok: false,
-      tokenReceived: endpoints.some(
-        (endpoint) => endpoint.endpoint === "/access_token" && endpoint.ok,
-      ),
-      organizationsCount: 0,
-      selectedOrganizationId: null,
-      selectedOrganizationName: null,
-      terminalGroupId: config.terminalGroupId || null,
-      terminalGroupFound: false,
-      menuReceived: false,
-      counts: emptyCounts,
+      ...baseResult,
+      tokenReceived: Boolean(authEndpoint?.ok),
+      authHttpStatus: authEndpoint?.status ?? null,
+      authError: authEndpoint?.error ?? null,
       endpoints,
       errors,
+      rawErrors: errors,
     };
   }
 }
@@ -239,9 +326,17 @@ async function requestAccessToken(
   config: IikoClientConfig,
   endpoints?: IikoEndpointCheck[],
 ) {
-  return requestIiko<{ token?: string }>(config, "/access_token", {
-    apiLogin: config.apiKey,
-  }, undefined, endpoints);
+  return requestIiko<{ token?: string }>(
+    config,
+    "/api/v2/access_token",
+    {
+      apiLogin: config.apiKey,
+      appId: config.appId,
+      clientSecret: config.clientSecret,
+    },
+    undefined,
+    endpoints,
+  );
 }
 
 async function getOrganizations(
@@ -251,7 +346,7 @@ async function getOrganizations(
 ) {
   const data = await requestIiko<{ organizations?: IikoApiOrganization[] }>(
     config,
-    "/organizations",
+    "/api/1/organizations",
     {},
     token,
     endpoints,
@@ -273,21 +368,54 @@ async function getTerminalGroups(
 ) {
   const data = await requestIiko<{
     terminalGroups?: IikoApiTerminalGroup[];
-    organizations?: Array<{ terminalGroups?: IikoApiTerminalGroup[] }>;
+    organizations?: IikoApiTerminalGroupsOrganization[];
   }>(
     config,
-    "/terminal_groups",
-    { organizationIds: organizations.map((organization) => organization.id) },
+    "/api/1/terminal_groups",
+    {
+      organizationIds: organizations.map((organization) => organization.id),
+      includeDisabled: false,
+    },
     token,
     endpoints,
   );
 
   return [
-    ...(data.terminalGroups ?? []),
+    ...(data.terminalGroups ?? []).flatMap((group) => {
+      const organizationId = group.organizationId;
+      const organizationName = group.organizationName;
+
+      if (Array.isArray(group.items)) {
+        return group.items.map((item) => ({
+          ...item,
+          organizationId: item.organizationId ?? organizationId,
+          organizationName: item.organizationName ?? organizationName,
+        }));
+      }
+
+      return [group];
+    }),
     ...(data.organizations ?? []).flatMap(
-      (organization) => organization.terminalGroups ?? [],
+      (organization) => {
+        const organizationId = organization.organizationId ?? organization.id;
+        const organizationName = organization.organizationName ?? organization.name;
+
+        return (organization.terminalGroups ?? []).map((group) => ({
+          ...group,
+          id: group.id ?? group.terminalGroupId,
+          name: group.name ?? group.terminalGroupName,
+          organizationId: group.organizationId ?? organizationId,
+          organizationName,
+        }));
+      },
     ),
-  ].filter((group) => group.id);
+  ]
+    .map((group) => ({
+      ...group,
+      id: group.id ?? group.terminalGroupId,
+      name: group.name ?? group.terminalGroupName,
+    }))
+    .filter((group) => Boolean(group.id));
 }
 
 async function getMenu(
@@ -298,8 +426,8 @@ async function getMenu(
 ) {
   return requestIiko<IikoApiNomenclature>(
     config,
-    "/nomenclature",
-    { organizationId },
+    "/api/1/nomenclature",
+    { organizationId, startRevision: 0 },
     token,
     endpoints,
   );
@@ -317,7 +445,7 @@ async function requestIiko<TResponse>(
     (request) => request.endpoint === endpoint,
   );
 
-  const response = await fetch(`${config.apiBaseUrl}${endpoint}`, {
+  const response = await fetch(`${config.apiRootUrl}${endpoint}`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -329,6 +457,9 @@ async function requestIiko<TResponse>(
   const rawBody = await response.text();
   const parsedBody = parseJson(rawBody);
   const responseSummary = summarizeIikoResponse(endpoint, parsedBody ?? rawBody);
+  const errorMessage = sanitizeSensitiveValue(
+    getIikoErrorMessage(parsedBody, rawBody),
+  );
 
   endpoints?.push({
     method: "POST",
@@ -337,14 +468,14 @@ async function requestIiko<TResponse>(
     status: response.status,
     ok: response.ok,
     response: responseSummary,
-    ...(response.ok ? {} : { error: getIikoErrorMessage(parsedBody, rawBody) }),
+    ...(response.ok ? {} : { error: errorMessage }),
   });
 
   if (!response.ok) {
     throw new IikoHttpError(
       response.status,
       endpoint,
-      getIikoErrorMessage(parsedBody, rawBody),
+      errorMessage,
       responseSummary,
     );
   }
@@ -378,11 +509,11 @@ function createSummary(
   terminalGroups: number,
   stopLists: IikoApiStopLists | null,
 ): IikoSyncSummary {
-  const products = menu?.products?.length ?? 0;
+  const products = countNomenclatureProducts(menu);
   const categories =
     menu?.productCategories?.length ?? countGroups(menu?.groups ?? []);
   const modifiers =
-    menu?.products?.reduce(
+    collectNomenclatureProducts(menu).reduce(
       (sum, product) =>
         sum +
         (product.modifiers?.length ?? 0) +
@@ -408,8 +539,152 @@ function countGroups(groups: IikoApiGroup[]): number {
   );
 }
 
+function countNomenclatureProducts(menu: IikoApiNomenclature | null) {
+  return collectNomenclatureProducts(menu).length;
+}
+
+function collectNomenclatureProducts(menu: IikoApiNomenclature | null) {
+  const products = [...(menu?.products ?? [])];
+
+  for (const group of menu?.groups ?? []) {
+    products.push(...collectProductsFromGroup(group));
+  }
+
+  return products;
+}
+
+function collectProductsFromGroup(group: IikoApiGroup): IikoApiProduct[] {
+  return (group.items ?? []).flatMap((item) => {
+    if (isNomenclatureGroup(item)) {
+      return collectProductsFromGroup(item);
+    }
+
+    return [item];
+  });
+}
+
+function isNomenclatureGroup(
+  item: IikoApiGroup | IikoApiProduct,
+): item is IikoApiGroup {
+  return Array.isArray((item as IikoApiGroup).items);
+}
+
 function trimTrailingSlash(value: string) {
   return value.replace(/\/+$/, "");
+}
+
+function deriveApiRootUrl(apiBaseUrl: string) {
+  const trimmed = trimTrailingSlash(apiBaseUrl);
+  const match = trimmed.match(/^(.*)\/api(?:\/(?:1|v1|v2))?$/);
+
+  return match?.[1] ?? trimmed;
+}
+
+function getMissingCredentialErrors(config: IikoClientConfig): IikoCheckError[] {
+  const missing: IikoCheckError[] = [];
+
+  if (!config.apiKey) {
+    missing.push({
+      step: "credentials",
+      message: "Ожидаю IIKO_API_KEY в серверных переменных окружения",
+    });
+  }
+
+  if (!config.appId) {
+    missing.push({
+      step: "credentials",
+      message: "Ожидаю IIKO_APP_ID в серверных переменных окружения",
+    });
+  }
+
+  if (!config.clientSecret) {
+    missing.push({
+      step: "credentials",
+      message: "Ожидаю IIKO_CLIENT_SECRET в серверных переменных окружения",
+    });
+  }
+
+  if (!config.terminalGroupId) {
+    missing.push({
+      step: "credentials",
+      message: "Ожидаю IIKO_TERMINAL_GROUP_ID в серверных переменных окружения",
+    });
+  }
+
+  return missing;
+}
+
+function createBaseCheckResult(
+  config: IikoClientConfig,
+  counts: IikoSyncSummary,
+  endpoints: IikoEndpointCheck[],
+  errors: IikoCheckError[],
+): IikoReadOnlyCheckResult {
+  return {
+    ok: false,
+    authVersion: "v2",
+    tokenReceived: false,
+    authHttpStatus: getEndpointStatus(endpoints, "/api/v2/access_token"),
+    authError:
+      endpoints.find((endpoint) => endpoint.endpoint === "/api/v2/access_token")
+        ?.error ?? null,
+    organizationsCount: 0,
+    selectedOrganizationId: null,
+    selectedOrganizationName: null,
+    terminalGroupsCount: 0,
+    terminalGroupFound: false,
+    terminalGroupId: config.terminalGroupId || null,
+    selectedTerminalGroupId: null,
+    selectedTerminalGroupName: null,
+    availableTerminalGroups: [],
+    menuReceived: false,
+    productsCount: 0,
+    categoriesCount: 0,
+    modifiersCount: 0,
+    counts,
+    endpoints,
+    errors,
+    rawErrors: errors,
+  };
+}
+
+function selectOrganizationByTerminalGroup(
+  organizations: IikoOrganization[],
+  terminalGroup: IikoApiTerminalGroup,
+) {
+  if (organizations.length === 1) {
+    return organizations[0];
+  }
+
+  return organizations.find(
+    (organization) => organization.id === terminalGroup.organizationId,
+  );
+}
+
+function createTerminalGroupDiagnostics(
+  terminalGroups: IikoApiTerminalGroup[],
+  organizations: IikoOrganization[],
+): IikoTerminalGroupDiagnostic[] {
+  return terminalGroups.map((group) => {
+    const organization = organizations.find(
+      (item) => item.id === group.organizationId,
+    );
+
+    return {
+      organizationId: group.organizationId ?? null,
+      organizationName: group.organizationName ?? organization?.name ?? null,
+      terminalGroupId: String(group.id),
+      terminalGroupName: group.name ?? null,
+      terminalGroupAddress:
+        group.terminalGroupAddress ?? group.address ?? null,
+      isDeleted: group.isDeleted ?? group.deleted ?? null,
+      status: group.status ?? null,
+    };
+  });
+}
+
+function getEndpointStatus(endpoints: IikoEndpointCheck[], endpoint: string) {
+  return endpoints.find((item) => item.endpoint === endpoint)?.status ?? null;
 }
 
 function createCheckError(error: unknown) {
@@ -419,14 +694,15 @@ function createCheckError(error: unknown) {
       endpoint: error.endpoint,
       status: error.status,
       message: error.message,
-      response: error.response,
+      response: sanitizeSensitive(error.response),
     };
   }
 
   return {
     step: "check",
-    message:
+    message: sanitizeSensitiveValue(
       error instanceof Error ? error.message : "Не удалось проверить iiko",
+    ),
   };
 }
 
@@ -458,17 +734,23 @@ function getIikoErrorMessage(parsedBody: unknown, rawBody: string) {
 
 function summarizeIikoResponse(endpoint: string, body: unknown) {
   if (!isRecord(body)) {
-    return typeof body === "string" ? body.slice(0, 500) : body;
+    return typeof body === "string"
+      ? sanitizeSensitiveValue(body.slice(0, 500))
+      : sanitizeSensitive(body);
   }
 
-  if (endpoint === "/access_token") {
+  if (endpoint === "/api/v2/access_token") {
     return {
       token: typeof body.token === "string" ? "[received]" : null,
+      error: body.error ?? null,
+      errorDescription: body.errorDescription ?? null,
+      message: body.message ?? null,
+      title: body.title ?? null,
       correlationId: body.correlationId ?? null,
     };
   }
 
-  if (endpoint === "/organizations") {
+  if (endpoint === "/api/1/organizations") {
     const organizations = Array.isArray(body.organizations)
       ? body.organizations
       : [];
@@ -484,7 +766,7 @@ function summarizeIikoResponse(endpoint: string, body: unknown) {
     };
   }
 
-  if (endpoint === "/terminal_groups") {
+  if (endpoint === "/api/1/terminal_groups") {
     const terminalGroups = Array.isArray(body.terminalGroups)
       ? body.terminalGroups
       : [];
@@ -495,25 +777,147 @@ function summarizeIikoResponse(endpoint: string, body: unknown) {
             : [],
         )
       : [];
+    const terminalGroupSummary = summarizeTerminalGroupsFromResponse(body);
 
     return {
       correlationId: body.correlationId ?? null,
-      terminalGroupsCount: terminalGroups.length + nestedTerminalGroups.length,
+      terminalGroupsCount:
+        terminalGroupSummary.length || terminalGroups.length + nestedTerminalGroups.length,
+      terminalGroups: terminalGroupSummary,
     };
   }
 
-  if (endpoint === "/nomenclature") {
+  if (endpoint === "/api/1/nomenclature") {
+    const nomenclature = body as IikoApiNomenclature;
+
     return {
       correlationId: body.correlationId ?? null,
-      products: Array.isArray(body.products) ? body.products.length : 0,
+      products: countNomenclatureProducts(nomenclature),
+      topLevelProducts: Array.isArray(body.products) ? body.products.length : 0,
       groups: Array.isArray(body.groups) ? body.groups.length : 0,
       productCategories: Array.isArray(body.productCategories)
         ? body.productCategories.length
         : 0,
+      sizes: Array.isArray(body.sizes) ? body.sizes.length : 0,
+      revision: body.revision ?? null,
     };
   }
 
-  return body;
+  return sanitizeSensitive(body);
+}
+
+function summarizeTerminalGroupsFromResponse(body: Record<string, unknown>) {
+  const topLevelGroups = Array.isArray(body.terminalGroups)
+    ? body.terminalGroups.flatMap((group) => {
+        if (!isRecord(group)) {
+          return [{ group, organizationId: null, organizationName: null }];
+        }
+
+        const organizationId = getStringValue(group.organizationId);
+        const organizationName = getStringValue(group.organizationName);
+
+        if (Array.isArray(group.items)) {
+          return group.items.map((item) => ({
+            group: item,
+            organizationId,
+            organizationName,
+          }));
+        }
+
+        return [{ group, organizationId, organizationName }];
+      })
+    : [];
+  const nestedGroups = Array.isArray(body.organizations)
+    ? body.organizations.flatMap((organization) => {
+        if (!isRecord(organization) || !Array.isArray(organization.terminalGroups)) {
+          return [];
+        }
+
+        const organizationId = getStringValue(
+          organization.organizationId,
+          organization.id,
+        );
+        const organizationName = getStringValue(
+          organization.organizationName,
+          organization.name,
+        );
+
+        return organization.terminalGroups.map((group) => ({
+          group,
+          organizationId,
+          organizationName,
+        }));
+      })
+    : [];
+
+  return [...topLevelGroups, ...nestedGroups]
+    .map(({ group, organizationId, organizationName }) => {
+      if (!isRecord(group)) return null;
+
+      return {
+        organizationId: getStringValue(group.organizationId) ?? organizationId,
+        organizationName:
+          getStringValue(group.organizationName) ?? organizationName,
+        terminalGroupId: getStringValue(group.id, group.terminalGroupId),
+        terminalGroupName: getStringValue(group.name, group.terminalGroupName),
+        terminalGroupAddress: getStringValue(
+          group.terminalGroupAddress,
+          group.address,
+        ),
+        isDeleted: getBooleanValue(group.isDeleted, group.deleted),
+        status: getStringValue(group.status),
+      };
+    })
+    .filter(Boolean);
+}
+
+function sanitizeSensitive(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeSensitive(item));
+  }
+
+  if (!isRecord(value)) {
+    return typeof value === "string" ? sanitizeSensitiveValue(value) : value;
+  }
+
+  return Object.fromEntries(
+    Object.entries(value).map(([key, item]) => [
+      key,
+      isSensitiveKey(key) ? "********" : sanitizeSensitive(item),
+    ]),
+  );
+}
+
+function sanitizeSensitiveValue(value: string) {
+  return value
+    .replace(/Bearer\s+[A-Za-z0-9._=-]+/g, "Bearer ********")
+    .replace(/("?(?:apiLogin|apiKey|appId|clientSecret|token)"?\s*[:=]\s*)"[^"]+"/gi, "$1\"********\"");
+}
+
+function isSensitiveKey(key: string) {
+  return /^(apiLogin|apiKey|appId|clientSecret|token|accessToken|authorization)$/i.test(
+    key,
+  );
+}
+
+function getStringValue(...values: unknown[]) {
+  for (const value of values) {
+    if (typeof value === "string" && value.length > 0) {
+      return value;
+    }
+  }
+
+  return null;
+}
+
+function getBooleanValue(...values: unknown[]) {
+  for (const value of values) {
+    if (typeof value === "boolean") {
+      return value;
+    }
+  }
+
+  return null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

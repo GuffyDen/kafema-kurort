@@ -420,19 +420,26 @@ function ConnectionsSection({
                 Сейчас реальные ключи iiko задаются на сервере.
               </p>
               <p className="mt-2 text-sm leading-6 text-[#777777]">
-                Форма ниже оставлена как будущий мастер подключения. Безопасное
-                хранение ключей в админке будет добавлено позже.
+                Проверка использует iiko Cloud API v2: API Key ресторана, App ID
+                приложения и Client Secret из переменных окружения. Форма ниже
+                оставлена как будущий мастер подключения.
               </p>
             </div>
             <TextField
               disabled
-              label="API Login"
-              value="Задается в IIKO_API_LOGIN"
+              label="API Key"
+              value="Задается в IIKO_API_KEY"
               onChange={() => undefined}
             />
             <TextField
               disabled
-              label="API Key"
+              label="App ID"
+              value="Задается в IIKO_APP_ID"
+              onChange={() => undefined}
+            />
+            <TextField
+              disabled
+              label="Client Secret"
               value="********"
               onChange={() => undefined}
               type="password"
@@ -457,8 +464,10 @@ function ConnectionsSection({
         ) : (
           <div className="mt-6 space-y-5">
             <div className="rounded-3xl bg-[#F7F7F7] p-4">
-              <p className="text-sm font-bold text-[#777777]">API Key</p>
-              <p className="mt-1 text-lg font-black">********</p>
+              <p className="text-sm font-bold text-[#777777]">Секреты iiko</p>
+              <p className="mt-1 text-lg font-black">
+                Хранятся в серверных переменных окружения
+              </p>
             </div>
 
             {iikoResult.organizations.length > 1 ? (
@@ -778,6 +787,10 @@ function ConnectedSummary({
         <div className="mt-4 grid gap-3 md:grid-cols-2">
           <Info label="Организация" value={organization.name} />
           <Info label="Версия iiko" value={result.version} />
+          <Info
+            label="Авторизация"
+            value={result.authVersion === "v2" ? "iiko Cloud API v2" : "Legacy"}
+          />
           <Info label="organizationId" value={organization.id} />
           <Info
             label="terminalGroupId"

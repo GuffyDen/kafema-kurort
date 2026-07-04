@@ -22,6 +22,7 @@ export type IikoSyncSummary = {
 export type IikoConnectionResult = {
   status: "connected";
   mode: "real" | "mock";
+  authVersion?: "v1" | "v2";
   tokenReceived: boolean;
   menuReceived: boolean;
   organization: IikoOrganization;
@@ -42,31 +43,31 @@ export type IikoReadOnlyRequest = {
 export const iikoReadOnlyRequests: IikoReadOnlyRequest[] = [
   {
     method: "POST",
-    endpoint: "/access_token",
+    endpoint: "/api/v2/access_token",
     mode: "auth-only",
-    purpose: "Получение access token по API Login / API Key.",
+    purpose: "Получение access token через iiko Cloud API v2.",
   },
   {
     method: "POST",
-    endpoint: "/organizations",
+    endpoint: "/api/1/organizations",
     mode: "read-only",
     purpose: "Получение списка организаций, доступных ключу.",
   },
   {
     method: "POST",
-    endpoint: "/terminal_groups",
+    endpoint: "/api/1/terminal_groups",
     mode: "read-only",
     purpose: "Получение terminal groups для выбранной организации.",
   },
   {
     method: "POST",
-    endpoint: "/nomenclature",
+    endpoint: "/api/1/nomenclature",
     mode: "read-only",
     purpose: "Получение меню, категорий, товаров, цен и модификаторов.",
   },
   {
     method: "POST",
-    endpoint: "/stop_lists",
+    endpoint: "/api/1/stop_lists",
     mode: "read-only",
     purpose: "Получение стоп-листов, если read-only метод доступен.",
   },
