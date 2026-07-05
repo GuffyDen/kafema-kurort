@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -303,9 +304,21 @@ export function ManagePanel() {
     <main className="min-h-screen bg-[#F7F7F7] text-[#1A1A1A]">
       <div className="mx-auto grid min-h-screen max-w-[1440px] grid-cols-[280px_1fr]">
         <aside className="border-r border-[#E6E6E6] bg-white px-5 py-6">
-          <div>
-            <p className="text-2xl font-black tracking-tight">Кафема Курорт</p>
-            <p className="mt-1 text-sm text-[#777777]">Manager / Admin</p>
+          <div className="flex items-center gap-3">
+            <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-2xl bg-[#F7F7F7] shadow-[0_12px_28px_rgba(26,26,26,0.08)]">
+              <Image
+                alt="Tablo"
+                className="h-full w-full object-contain p-2"
+                height={48}
+                priority
+                src="/tablo-logo.png"
+                width={48}
+              />
+            </div>
+            <div>
+              <p className="text-2xl font-black tracking-tight">Tablo</p>
+              <p className="mt-1 text-sm text-[#777777]">Панель управления</p>
+            </div>
           </div>
 
           <nav className="mt-8 space-y-2">

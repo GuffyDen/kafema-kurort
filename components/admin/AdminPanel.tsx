@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
 import {
   updateOrderStatus,
@@ -141,11 +142,24 @@ export function AdminPanel() {
   return (
     <main className="min-h-screen bg-[#F7F7F7] px-6 py-5 text-[#1A1A1A] lg:px-8">
       <div className="mx-auto flex h-full min-h-[calc(100vh-40px)] w-full max-w-7xl flex-col gap-5">
-        <header className="flex shrink-0 items-center justify-between gap-8">
-          <div className="flex items-center gap-4">
+        <header className="flex shrink-0 flex-wrap items-center justify-between gap-4 lg:gap-8">
+          <div className="flex flex-wrap items-center gap-4">
             <p className="text-3xl font-bold leading-none text-[#E30613]">
               ☕ Кафема Курорт
             </p>
+            <div className="flex items-center gap-2 rounded-[18px] bg-white px-3 py-2 shadow-[0_14px_34px_rgba(26,26,26,0.06)]">
+              <Image
+                alt="Tablo"
+                className="h-6 w-6 object-contain"
+                height={24}
+                priority
+                src="/tablo-logo.png"
+                width={24}
+              />
+              <span className="text-xs font-black uppercase tracking-[0.12em] text-[#777777]">
+                Бариста
+              </span>
+            </div>
             <div className="flex rounded-[22px] bg-white p-1 shadow-[0_14px_34px_rgba(26,26,26,0.06)]">
               {(["queue", "archive"] as const).map((view) => (
                 <button
