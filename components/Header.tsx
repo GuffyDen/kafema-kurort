@@ -11,7 +11,7 @@ export function Header({
 }: HeaderProps) {
   if (variant === "hero") {
     return (
-      <header className="relative -mx-4 -mt-5 min-h-[560px] overflow-hidden rounded-b-[34px] pb-9 pt-5 text-white shadow-[0_22px_54px_rgba(64,39,23,0.14)]">
+      <header className="relative -mx-4 -mt-5 min-h-[580px] overflow-hidden rounded-b-[34px] pb-9 pt-5 text-white shadow-[0_22px_54px_rgba(64,39,23,0.14)]">
         <div className="absolute inset-0">
           <img
             src="/client/kafema-sea-hero.jpg"
@@ -24,22 +24,22 @@ export function Header({
         </div>
 
         <div className="relative z-10 px-6 pt-7">
-          <div className="flex items-start justify-between gap-4">
+          <div className="relative min-h-[156px]">
             <img
               src="/kafema-kurort-logo.png"
               alt="Кафема Курорт"
-              className="h-auto w-[168px] object-contain"
+              className="-ml-9 -mt-10 h-auto w-[302px] object-contain drop-shadow-[0_10px_28px_rgba(45,24,14,0.26)]"
             />
             {onCartOpen ? (
               <button
                 type="button"
-                className="mt-2 flex h-[52px] shrink-0 items-center gap-2 rounded-full bg-white/92 px-4 text-sm font-bold text-[var(--color-text-main)] shadow-[0_14px_30px_rgba(51,31,18,0.14)] backdrop-blur-xl transition duration-500 hover:bg-white active:scale-[0.98]"
+                className="absolute right-0 top-2 flex h-[54px] shrink-0 items-center gap-2 rounded-full border border-white/65 bg-white/86 px-4 text-sm font-bold text-[var(--color-text-main)] shadow-[0_16px_34px_rgba(51,31,18,0.14)] backdrop-blur-2xl transition duration-500 hover:bg-white/96 active:scale-[0.98]"
                 onClick={onCartOpen}
               >
-                <span className="text-lg">🛍</span>
+                <ShoppingBagIcon />
                 <span>Корзина</span>
                 {cartCount > 0 ? (
-                  <span className="flex h-7 min-w-7 items-center justify-center rounded-full bg-[#E30613] px-2 text-xs font-black text-white">
+                  <span className="flex h-7 min-w-7 items-center justify-center rounded-full bg-[#E30613] px-2 text-xs font-black text-white shadow-[0_6px_14px_rgba(227,6,19,0.22)]">
                     {cartCount}
                   </span>
                 ) : null}
@@ -47,15 +47,15 @@ export function Header({
             ) : null}
           </div>
 
-          <div className="mt-[5.5rem] max-w-[18.5rem] drop-shadow-[0_3px_12px_rgba(43,28,20,0.30)]">
-            <p className="font-serif text-[2.05rem] font-bold leading-[1.18] min-[380px]:text-[2.18rem]">
+          <div className="mt-5 max-w-[18.5rem] drop-shadow-[0_3px_12px_rgba(43,28,20,0.30)]">
+            <p className="font-serif text-[2rem] font-bold leading-[1.18] min-[380px]:text-[2.12rem]">
               <span className="block whitespace-nowrap">Мы у моря.</span>
               <span className="block whitespace-nowrap">Вы с кофе.</span>
             </p>
-            <p className="mt-5 whitespace-pre-line font-serif text-[1.04rem] font-semibold leading-7 text-white/90">
+            <p className="mt-4 whitespace-pre-line font-serif text-[1.02rem] font-semibold leading-7 text-white/90">
               Вкусно.{"\n"}Спокойно.{"\n"}По-нашему.
             </p>
-            <p className="mt-5 text-xl tracking-[0.16em] text-white/88">〰〰</p>
+            <p className="mt-4 text-xl tracking-[0.16em] text-white/88">〰〰</p>
           </div>
         </div>
       </header>
@@ -84,5 +84,30 @@ export function Header({
         </button>
       ) : null}
     </header>
+  );
+}
+
+function ShoppingBagIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="h-[18px] w-[18px]"
+      fill="none"
+      viewBox="0 0 24 24"
+    >
+      <path
+        d="M7.5 8.5V7a4.5 4.5 0 0 1 9 0v1.5"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.8"
+      />
+      <path
+        d="M5.4 8.5h13.2l1 11.2a2 2 0 0 1-2 2.2H6.4a2 2 0 0 1-2-2.2l1-11.2Z"
+        stroke="currentColor"
+        strokeLinejoin="round"
+        strokeWidth="1.8"
+      />
+    </svg>
   );
 }
