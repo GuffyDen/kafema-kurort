@@ -25,7 +25,11 @@ export function Header({
 
         <div className="relative z-10 px-6 pt-7">
           <div className="flex items-start justify-between gap-4">
-            <BrandLogo />
+            <img
+              src="/kafema-kurort-logo.png"
+              alt="Кафема Курорт"
+              className="h-auto w-[168px] object-contain"
+            />
             {onCartOpen ? (
               <button
                 type="button"
@@ -43,16 +47,15 @@ export function Header({
             ) : null}
           </div>
 
-          <div className="mt-[4.5rem] max-w-[14rem] drop-shadow-[0_3px_12px_rgba(43,28,20,0.32)]">
-            <p className="font-serif text-[2.42rem] font-bold leading-[1.08]">
-              Мы у моря.
-              <br />
-              Вы с кофе.
+          <div className="mt-[5.5rem] max-w-[18.5rem] drop-shadow-[0_3px_12px_rgba(43,28,20,0.30)]">
+            <p className="font-serif text-[2.05rem] font-bold leading-[1.18] min-[380px]:text-[2.18rem]">
+              <span className="block whitespace-nowrap">Мы у моря.</span>
+              <span className="block whitespace-nowrap">Вы с кофе.</span>
             </p>
-            <p className="mt-5 whitespace-pre-line font-serif text-[1.14rem] font-semibold leading-8 text-white/92">
+            <p className="mt-5 whitespace-pre-line font-serif text-[1.04rem] font-semibold leading-7 text-white/90">
               Вкусно.{"\n"}Спокойно.{"\n"}По-нашему.
             </p>
-            <p className="mt-5 text-2xl tracking-[0.16em] text-white/90">〰〰</p>
+            <p className="mt-5 text-xl tracking-[0.16em] text-white/88">〰〰</p>
           </div>
         </div>
       </header>
@@ -61,7 +64,11 @@ export function Header({
 
   return (
     <header className="flex items-center justify-between gap-4">
-      <BrandLogo dark />
+      <img
+        src="/kafema-kurort-logo.png"
+        alt="Кафема Курорт"
+        className="h-auto w-[150px] object-contain"
+      />
       {onCartOpen ? (
         <button
           type="button"
@@ -77,21 +84,5 @@ export function Header({
         </button>
       ) : null}
     </header>
-  );
-}
-
-function BrandLogo({ dark = false }: { dark?: boolean }) {
-  return (
-    <div
-      className={`overflow-hidden ${
-        dark ? "w-[150px] rounded-[18px] bg-[#E30613]" : "w-[166px]"
-      }`}
-    >
-      <img
-        src="/kafema-kurort-logo.png"
-        alt="Кафема Курорт"
-        className="block h-auto w-full object-contain"
-      />
-    </div>
   );
 }

@@ -61,13 +61,11 @@ export function OrderSuccessModal({
       <BackgroundDecor />
       <main className="relative z-10 mx-auto flex min-h-full w-full max-w-md flex-col">
         <header className="flex items-center justify-between gap-4">
-          <div className="w-[154px] min-w-0 overflow-hidden rounded-[18px] bg-[#E30613] leading-none">
-            <img
-              src="/kafema-kurort-logo.png"
-              alt="Кафема Курорт"
-              className="block h-auto w-full object-contain"
-            />
-          </div>
+          <img
+            src="/kafema-kurort-logo.png"
+            alt="Кафема Курорт"
+            className="h-auto w-[154px] object-contain"
+          />
           <div className="rounded-[28px] bg-[var(--color-card)] px-4 py-3 text-right shadow-[var(--shadow-soft)]">
             <p className="text-xs font-semibold text-[var(--color-text-muted)]">Заказ</p>
             <p className="text-3xl font-black text-[var(--color-caramel)]">#{order.number}</p>
