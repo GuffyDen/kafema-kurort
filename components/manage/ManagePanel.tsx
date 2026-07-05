@@ -7,7 +7,6 @@ import {
   createIikoSyncSummary,
   iikoReadOnlyRequests,
   type IikoConnectionResult,
-  type IikoOrganization,
 } from "@/lib/iikoReadOnlyProvider";
 import {
   getStoredBaristaSettings,
@@ -64,12 +63,18 @@ type IikoCheckDiagnostics = {
   ok: boolean;
   authVersion: "v2";
   tokenReceived: boolean;
+  authHttpStatus?: number | null;
+  authError?: string | null;
+  organizationsCount?: number;
+  terminalGroupsCount?: number;
+  terminalGroupFound?: boolean;
   selectedOrganizationName: string | null;
   selectedTerminalGroupName: string | null;
   categoriesCount: number;
   productsCount: number;
   modifiersCount: number;
   menuReceived: boolean;
+  rawErrors?: unknown[];
   cache?: {
     status: string;
     checkedAt?: string;
@@ -101,7 +106,7 @@ type IikoWebhookRequestLog = {
 };
 
 const navItems: Array<{ id: AdminSection; label: string; hint: string }> = [
-  { id: "connections", label: "Подключения", hint: "iiko и платежи" },
+  { id: "connections", label: "Интеграции", hint: "iiko, платежи, Tablo" },
   { id: "storefront", label: "Витрина", hint: "Отображение меню" },
   { id: "barista", label: "Бариста", hint: "Рабочее место" },
   { id: "qr", label: "QR", hint: "Точки входа" },
@@ -120,8 +125,6 @@ export function ManagePanel() {
   const [iikoError, setIikoError] = useState("");
   const [webhookStatus, setWebhookStatus] = useState<IikoWebhookStatus | null>(null);
   const [showEnvModeWarning, setShowEnvModeWarning] = useState(false);
-  const [selectedOrganizationId, setSelectedOrganizationId] = useState("");
-  const [lastSyncAt, setLastSyncAt] = useState("");
   const [overlays, setOverlays] = useState<StorefrontOverlayState>(() =>
     getStoredOverlays(),
   );
@@ -135,15 +138,6 @@ export function ManagePanel() {
     banners: "Утренний кофе, сезонные напитки, десерты к выдаче",
     contacts: "+7 (914) 234-56-78",
   });
-
-  const selectedOrganization = useMemo(() => {
-    if (!iikoResult) return null;
-    return (
-      iikoResult.organizations.find(
-        (organization) => organization.id === selectedOrganizationId,
-      ) ?? iikoResult.organization
-    );
-  }, [iikoResult, selectedOrganizationId]);
 
   const syncSummary = useMemo(() => createIikoSyncSummary(menu), [menu]);
 
@@ -244,10 +238,6 @@ export function ManagePanel() {
 
       const result = payload.result;
       setIikoResult(result);
-      setSelectedOrganizationId(
-        result.organizations.length === 1 ? result.organization.id : "",
-      );
-      setLastSyncAt(result.lastSyncAt);
     } catch (error) {
       setIikoResult(null);
       setIikoError(
@@ -258,26 +248,6 @@ export function ManagePanel() {
     } finally {
       setIsCheckingIiko(false);
     }
-  }
-
-  function syncMenuAgain() {
-    const nextSyncAt = new Intl.DateTimeFormat("ru-RU", {
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      month: "2-digit",
-    }).format(new Date());
-    setLastSyncAt(nextSyncAt);
-    setIikoResult((current) =>
-      current
-        ? {
-            ...current,
-            lastSyncAt: nextSyncAt,
-            summary:
-              current.mode === "mock" ? createIikoSyncSummary(menu) : current.summary,
-          }
-        : current,
-    );
   }
 
   function updateOverlay(item: MenuItem, patch: Partial<StorefrontOverlay>) {
@@ -368,17 +338,12 @@ export function ManagePanel() {
               iikoDiagnostics={iikoDiagnostics}
               iikoResult={iikoResult}
               isCheckingIiko={isCheckingIiko}
-              lastSyncAt={lastSyncAt}
-              selectedOrganization={selectedOrganization}
-              selectedOrganizationId={selectedOrganizationId}
               showEnvModeWarning={showEnvModeWarning}
               syncSummary={syncSummary}
-              setSelectedOrganizationId={setSelectedOrganizationId}
               webhookStatus={webhookStatus}
               onCheckIiko={checkIikoConnection}
               onClearWebhook={clearWebhookJournal}
               onRefreshWebhook={refreshWebhookStatus}
-              onSyncMenu={syncMenuAgain}
             />
           ) : null}
 
@@ -419,400 +384,277 @@ function ConnectionsSection({
   iikoDiagnostics,
   iikoResult,
   isCheckingIiko,
-  lastSyncAt,
-  selectedOrganization,
-  selectedOrganizationId,
   showEnvModeWarning,
   syncSummary,
   webhookStatus,
-  setSelectedOrganizationId,
   onCheckIiko,
   onClearWebhook,
   onRefreshWebhook,
-  onSyncMenu,
 }: {
   iikoError: string;
   iikoDiagnostics: IikoCheckDiagnostics | null;
   iikoResult: IikoConnectionResult | null;
   isCheckingIiko: boolean;
-  lastSyncAt: string;
-  selectedOrganization: IikoOrganization | null;
-  selectedOrganizationId: string;
   showEnvModeWarning: boolean;
-  syncSummary: { products: number; categories: number; modifiers: number; terminalGroups: number; stopLists: number };
+  syncSummary: {
+    products: number;
+    categories: number;
+    modifiers: number;
+    terminalGroups: number;
+    stopLists: number;
+  };
   webhookStatus: IikoWebhookStatus | null;
-  setSelectedOrganizationId: (value: string) => void;
   onCheckIiko: () => void;
   onClearWebhook: () => void;
   onRefreshWebhook: () => void;
-  onSyncMenu: () => void;
 }) {
   return (
-    <div className="grid gap-5 xl:grid-cols-2">
-      <Card>
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h2 className="text-2xl font-black">iiko</h2>
-            <p className="mt-1 text-sm leading-6 text-[#777777]">
-              Проверка подключения к меню, ценам, категориям, модификаторам,
-              стоп-листам и наличию.
-            </p>
-          </div>
-          <ConnectionBadge connected={Boolean(iikoResult)} />
-        </div>
+    <div className="space-y-5">
+      <div className="grid gap-5 xl:grid-cols-2">
+        <IikoCloudApiCard
+          diagnostics={iikoDiagnostics}
+          error={iikoError}
+          isChecking={isCheckingIiko}
+          result={iikoResult}
+          showEnvModeWarning={showEnvModeWarning}
+          onCheck={onCheckIiko}
+        />
+        <IikoWebhookCard
+          status={webhookStatus}
+          onClear={onClearWebhook}
+          onRefresh={onRefreshWebhook}
+        />
+        <YookassaIntegrationCard />
+        <TabloIntegrationCard />
+      </div>
 
-        {!iikoResult ? (
-          <div className="mt-6 space-y-4">
-            <div className="rounded-3xl bg-[#F7F7F7] p-4">
-              <p className="text-sm font-bold text-[#777777]">Безопасное подключение</p>
-              <p className="mt-2 text-base font-black">
-                Сейчас реальные ключи iiko задаются на сервере.
-              </p>
-              <p className="mt-2 text-sm leading-6 text-[#777777]">
-                Проверка использует iiko Cloud API v2: API Key ресторана, App ID
-                приложения и Client Secret из переменных окружения. Форма ниже
-                оставлена как будущий мастер подключения.
-              </p>
-            </div>
-            <TextField
-              disabled
-              label="API Key"
-              value="Задается в IIKO_API_KEY"
-              onChange={() => undefined}
-            />
-            <TextField
-              disabled
-              label="App ID"
-              value="Задается в IIKO_APP_ID"
-              onChange={() => undefined}
-            />
-            <TextField
-              disabled
-              label="Client Secret"
-              value="********"
-              onChange={() => undefined}
-              type="password"
-            />
-            {showEnvModeWarning ? (
-              <p className="rounded-2xl bg-[#FFF4D7] px-4 py-3 text-sm font-bold text-[#8A6500]">
-                Ключи и токены подключаются через серверные переменные
-                окружения. На Vercel они задаются в Settings → Environment
-                Variables. Безопасное хранение ключей в админке будет добавлено
-                позже.
-              </p>
-            ) : null}
-            {iikoError ? (
-              <p className="rounded-2xl bg-[#E30613]/10 px-4 py-3 text-sm font-bold text-[#E30613]">
-                {iikoError}
-              </p>
-            ) : null}
-            <IikoDiagnosticsSummary diagnostics={iikoDiagnostics} />
-            <PrimaryButton disabled={isCheckingIiko} onClick={onCheckIiko}>
-              {isCheckingIiko ? "Проверяем..." : "Проверить подключение"}
-            </PrimaryButton>
-          </div>
-        ) : (
-          <div className="mt-6 space-y-5">
-            <div className="rounded-3xl bg-[#F7F7F7] p-4">
-              <p className="text-sm font-bold text-[#777777]">Секреты iiko</p>
-              <p className="mt-1 text-lg font-black">
-                Хранятся в серверных переменных окружения
-              </p>
-            </div>
-
-            {iikoResult.organizations.length > 1 ? (
-              <label className="block">
-                <span className="text-sm font-bold text-[#777777]">
-                  Организация
-                </span>
-                <select
-                  className="mt-2 h-12 w-full rounded-2xl border border-[#E6E6E6] bg-white px-4 font-bold outline-none"
-                  value={selectedOrganizationId}
-                  onChange={(event) => setSelectedOrganizationId(event.target.value)}
-                >
-                  <option value="">Выберите организацию</option>
-                  {iikoResult.organizations.map((organization) => (
-                    <option key={organization.id} value={organization.id}>
-                      {organization.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            ) : null}
-
-            <ConnectedSummary
-              result={iikoResult}
-              diagnostics={iikoDiagnostics}
-              selectedOrganization={selectedOrganization}
-              lastSyncAt={lastSyncAt}
-            />
-
-            <div className="flex flex-wrap gap-3">
-              <PrimaryButton onClick={onSyncMenu}>Синхронизировать меню</PrimaryButton>
-              <SecondaryButton onClick={onCheckIiko}>Проверить снова</SecondaryButton>
-            </div>
-          </div>
-        )}
-      </Card>
-
-      <Card>
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h2 className="text-2xl font-black">ЮKassa</h2>
-            <p className="mt-1 text-sm leading-6 text-[#777777]">
-              Подготовка к paid-first flow. Реальная интеграция платежей на этом
-              этапе не выполняется.
-            </p>
-          </div>
-          <span className="rounded-full bg-[#EFEFEF] px-3 py-1.5 text-sm font-bold text-[#777777]">
-            Не подключено
-          </span>
-        </div>
-
-        <div className="mt-6 space-y-4">
-          <TextField label="Shop ID" value="" onChange={() => undefined} placeholder="Будет заполнено позже" disabled />
-          <TextField label="Secret Key" value="" onChange={() => undefined} placeholder="********" disabled type="password" />
-          <SecondaryButton disabled onClick={() => undefined}>
-            Подключить позже
-          </SecondaryButton>
-        </div>
-      </Card>
-
-      <WebhookCard
-        status={webhookStatus}
-        onClear={onClearWebhook}
-        onRefresh={onRefreshWebhook}
-      />
-
-      <DeveloperDiagnostics summary={syncSummary} />
+      <DeveloperDiagnostics diagnostics={iikoDiagnostics} summary={syncSummary} />
     </div>
   );
 }
 
-function WebhookCard({
-  onClear,
-  onRefresh,
-  status,
+function IikoCloudApiCard({
+  diagnostics,
+  error,
+  isChecking,
+  result,
+  showEnvModeWarning,
+  onCheck,
 }: {
-  onClear: () => void;
-  onRefresh: () => void;
-  status: IikoWebhookStatus | null;
+  diagnostics: IikoCheckDiagnostics | null;
+  error: string;
+  isChecking: boolean;
+  result: IikoConnectionResult | null;
+  showEnvModeWarning: boolean;
+  onCheck: () => void;
 }) {
-  const [showPayload, setShowPayload] = useState(false);
-  const [selectedRequest, setSelectedRequest] =
-    useState<IikoWebhookRequestLog | null>(null);
-  const webhookUrl =
-    status?.webhookUrl ?? "https://kafema-kurort.vercel.app/api/iiko/webhook";
-  const curlExample = `curl -X POST ${webhookUrl} \\
-  -H "Content-Type: application/json" \\
-  -H "X-Iiko-Webhook-Token: <token>" \\
-  -d '{"eventType":"OrderUpdated","orderId":"demo-order","status":"NEW"}'`;
-  const totalRequests = status?.totalRequests ?? 0;
-  const successfulEvents = status?.totalReceived ?? 0;
-  const totalErrors = status?.totalErrors ?? 0;
-  const hasRequests = totalRequests > 0;
-  const hasMessages = successfulEvents > 0;
-  const payloadForViewer = status?.lastPayload ?? status?.lastMessage ?? null;
-  const requestJournal = status?.requests ?? [];
+  const tokenReceived = diagnostics?.tokenReceived ?? result?.tokenReceived ?? false;
+  const organizationName =
+    diagnostics?.selectedOrganizationName ?? result?.organization.name ?? "Не проверено";
+  const terminalGroupName =
+    diagnostics?.selectedTerminalGroupName ??
+    result?.organization.terminalGroupId ??
+    "Не проверено";
+  const categoriesCount = diagnostics?.categoriesCount ?? result?.summary.categories ?? 0;
+  const productsCount = diagnostics?.productsCount ?? result?.summary.products ?? 0;
+  const modifiersCount = diagnostics?.modifiersCount ?? result?.summary.modifiers ?? 0;
+  const authVersion = diagnostics?.authVersion ?? "v2";
+  const connected = Boolean(tokenReceived && result && !error);
+  const productsMissing = connected && productsCount === 0;
 
   return (
     <Card>
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-black">Монитор iiko</h2>
-          <p className="mt-1 text-sm leading-6 text-[#777777]">
-            Диагностика входящих событий от iiko.
-          </p>
-        </div>
-        <span className="rounded-full bg-emerald-50 px-3 py-1.5 text-sm font-black text-emerald-700">
-          🟢 Готов
-        </span>
+      <IntegrationCardHeader
+        description="Read-only проверка меню, организации и терминальной группы."
+        status={error ? "Ошибка" : connected ? "Подключено" : "Не проверено"}
+        title="iiko Cloud API"
+        tone={error ? "danger" : connected ? "success" : "neutral"}
+      />
+
+      <div className="mt-5 grid gap-3 sm:grid-cols-2">
+        <Info label="authVersion" value={authVersion} />
+        <Info label="tokenReceived" value={tokenReceived ? "true" : "false"} />
+        <Info label="Организация" value={organizationName} />
+        <Info label="Terminal group" value={terminalGroupName} />
       </div>
 
-      <div className="mt-5 space-y-4">
-        <div className="rounded-3xl bg-[#F7F7F7] p-4">
-          <p className="text-sm font-bold text-[#777777]">Статус подключения</p>
-          <p className="mt-2 text-xl font-black text-emerald-700">
-            🟢 {formatIikoEventStatus(status?.message)}
-          </p>
-          {hasMessages ? (
-            <p className="mt-2 text-sm font-bold text-[#777777]">
-              Webhook принимает события. Последнее успешное событие:{" "}
-              <span className="text-[#1A1A1A]">
-                {formatWebhookDate(status?.lastWebhookReceivedAt)}
-              </span>
-            </p>
-          ) : hasRequests ? (
-            <div className="mt-4 rounded-[28px] border border-[#F4D6D8] bg-[#E30613]/5 p-5">
-              <p className="text-lg font-black text-[#E30613]">
-                Webhook вызывается, но успешных событий пока нет
-              </p>
-              <p className="mt-2 text-sm leading-6 text-[#777777]">
-                iiko или клиент обращается к webhook, но запросы не проходят
-                проверку. Смотрите журнал ошибок ниже.
-              </p>
-            </div>
-          ) : (
-            <div className="mt-4 rounded-[28px] border border-dashed border-[#DADADA] bg-white p-5">
-              <p className="text-lg font-black">
-                Webhook еще ни разу не вызывался
-              </p>
-              <p className="mt-2 text-sm leading-6 text-[#777777]">
-                Как только на URL придет любой GET, POST, запрос без токена или
-                запрос с ошибкой, он появится в журнале.
-              </p>
-            </div>
-          )}
-        </div>
+      <div className="mt-5 grid grid-cols-3 gap-3">
+        <CompactMetric label="Категории" value={categoriesCount} />
+        <CompactMetric label="Товары" value={productsCount} />
+        <CompactMetric label="Модификаторы" value={modifiersCount} />
+      </div>
 
-        <div className="grid gap-3 md:grid-cols-2">
+      {productsMissing ? (
+        <div className="mt-5 rounded-3xl bg-[#FFF4D7] p-4 text-sm font-bold leading-6 text-[#8A6500]">
+          <p>Авторизация успешна.</p>
+          <p>Организация найдена.</p>
+          <p>Терминальная группа найдена.</p>
+          <p>iiko не возвращает товары.</p>
+          <p>Категорий: {categoriesCount}.</p>
+          <p>Товаров: 0.</p>
+        </div>
+      ) : null}
+
+      {error ? (
+        <p className="mt-5 rounded-3xl bg-[#FFE7E7] p-4 text-sm font-bold leading-6 text-[#B00020]">
+          {error}
+        </p>
+      ) : null}
+
+      <PrimaryButton onClick={onCheck} disabled={isChecking}>
+        {isChecking ? "Проверяем..." : "Проверить подключение"}
+      </PrimaryButton>
+
+      <details className="mt-5 rounded-3xl border border-[#E9E1D7] bg-[#FFFDF8] p-4">
+        <summary className="cursor-pointer text-sm font-black text-[#3B2F2A]">
+          Технические детали
+        </summary>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <Info label="Secrets" value="Только server env" />
+          <Info label="App credentials" value="Tablo" />
+          <Info label="Tenant credentials" value="Кафема Санаторная" />
+          <Info label="Меню получено" value={diagnostics?.menuReceived ? "Да" : "Нет"} />
+          <Info label="Cache" value={diagnostics?.cache?.status ?? "Нет данных"} />
           <Info
-            label="Защитный токен"
-            value={status?.tokenConfigured ? "Настроен" : "Не настроен"}
+            label="Env mode"
+            value={showEnvModeWarning ? "server env" : "Не показывался"}
           />
-          <Info label="Всего обращений к webhook" value={String(totalRequests)} />
-          <Info label="Успешно принятых событий" value={String(successfulEvents)} />
-          <Info label="Ошибочных обращений" value={String(totalErrors)} />
+        </div>
+        {diagnostics?.cache?.warning ? (
+          <p className="mt-3 rounded-2xl bg-[#F7F7F7] p-3 text-xs font-bold leading-5 text-[#777777]">
+            {diagnostics.cache.warning}
+          </p>
+        ) : null}
+      </details>
+    </Card>
+  );
+}
+
+function IikoWebhookCard({
+  status,
+  onClear,
+  onRefresh,
+}: {
+  status: IikoWebhookStatus | null;
+  onClear: () => void;
+  onRefresh: () => void;
+}) {
+  const [showPayload, setShowPayload] = useState(false);
+  const [selectedRequest, setSelectedRequest] = useState<IikoWebhookRequestLog | null>(null);
+  const webhookUrl =
+    status?.webhookUrl ?? "https://kafema-kurort.vercel.app/api/iiko/webhook";
+  const totalRequests = status?.totalRequests ?? status?.totalReceived ?? 0;
+  const totalReceived = status?.totalReceived ?? 0;
+  const totalErrors = status?.totalErrors ?? 0;
+  const hasRequests = totalRequests > 0;
+  const hasSuccessfulEvents = totalReceived > 0;
+  const payloadForViewer = status?.lastPayload ?? status?.lastMessage ?? null;
+  const requestJournal = status?.requests ?? [];
+  const lastStatus = status?.lastHttpStatus ?? "Нет";
+
+  return (
+    <Card>
+      <IntegrationCardHeader
+        description="Входящие события от iiko и журнал обращений к webhook."
+        status={
+          hasSuccessfulEvents ? "Принимает события" : hasRequests ? "Есть обращения" : "Готов"
+        }
+        title="iiko Webhook"
+        tone={hasSuccessfulEvents ? "success" : hasRequests ? "warning" : "neutral"}
+      />
+
+      <div className="mt-5 space-y-3">
+        <Info label="Webhook URL" value={webhookUrl} />
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Info label="tokenConfigured" value={status?.tokenConfigured ? "true" : "false"} />
           <Info
-            label="Последнее обращение"
-            value={formatWebhookDate(requestJournal[0]?.receivedAt)}
+            label="lastWebhookReceivedAt"
+            value={formatWebhookDate(status?.lastWebhookReceivedAt)}
           />
-          <Info label="Последний HTTP Status" value={status?.lastHttpStatus ?? "Нет"} />
+          <Info label="lastEventType" value={status?.lastEventType ?? "Unknown"} />
+          <Info label="lastOrderId" value={status?.lastOrderId ?? "Нет"} />
+        </div>
+      </div>
+
+      <div className="mt-5 grid grid-cols-3 gap-3">
+        <CompactMetric label="Обращения" value={totalRequests} />
+        <CompactMetric label="Принято" value={totalReceived} />
+        <CompactMetric label="Ошибки" value={totalErrors} />
+      </div>
+
+      {!hasRequests ? (
+        <p className="mt-5 rounded-3xl bg-[#F7F7F7] p-4 text-sm font-bold leading-6 text-[#777777]">
+          Webhook еще ни разу не вызывался. После первого обращения журнал появится
+          автоматически.
+        </p>
+      ) : totalReceived === 0 ? (
+        <p className="mt-5 rounded-3xl bg-[#FFF4D7] p-4 text-sm font-bold leading-6 text-[#8A6500]">
+          iiko или клиент обращается к webhook, но запросы не проходят проверку.
+          Смотрите журнал ошибок в технических деталях.
+        </p>
+      ) : null}
+
+      <div className="mt-5 flex flex-wrap gap-3">
+        <PrimaryButton onClick={onRefresh}>Обновить монитор</PrimaryButton>
+        {hasRequests ? <SecondaryButton onClick={onClear}>Очистить журнал</SecondaryButton> : null}
+      </div>
+
+      <details className="mt-5 rounded-3xl border border-[#E9E1D7] bg-[#FFFDF8] p-4">
+        <summary className="cursor-pointer text-sm font-black text-[#3B2F2A]">
+          Технические детали
+        </summary>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <Info label="Последний HTTP Status" value={lastStatus} />
           <Info label="Последний IP" value={status?.lastClientIp ?? "Нет"} />
           <Info label="Последний User-Agent" value={status?.lastUserAgent ?? "Нет"} />
           <Info label="Последняя ошибка" value={status?.lastError ?? "Нет"} />
-          <Info label="Последний тип события" value={status?.lastEventType ?? "Unknown"} />
-          <Info label="Последний orderId" value={status?.lastOrderId ?? "Нет"} />
-          <Info label="Статус заказа" value={status?.lastOrderStatus ?? "Нет"} />
+        </div>
+        <div className="mt-4 flex flex-wrap gap-3">
+          <SecondaryButton
+            disabled={!payloadForViewer}
+            onClick={() => payloadForViewer && setShowPayload(true)}
+          >
+            Показать последнее сообщение
+          </SecondaryButton>
         </div>
 
-        <div className="rounded-3xl border border-[#E6E6E6] bg-white p-4">
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <h3 className="font-black">Последние обращения</h3>
-              <p className="mt-1 text-sm font-semibold text-[#777777]">
-                Последние 20 запросов к /api/iiko/webhook.
-              </p>
-            </div>
-            <span className="rounded-full bg-[#F7F7F7] px-3 py-1.5 text-sm font-black text-[#777777]">
-              {requestJournal.length}
-            </span>
-          </div>
-
-          {requestJournal.length > 0 ? (
-            <div className="mt-4 divide-y divide-[#EFEFEF] overflow-hidden rounded-[24px] border border-[#EFEFEF]">
-              {requestJournal.map((requestLog) => (
-                <button
-                  key={requestLog.id}
-                  type="button"
-                  className="grid w-full grid-cols-[132px_72px_92px_96px_minmax(120px,1fr)_minmax(120px,1fr)] items-center gap-3 bg-white px-4 py-3 text-left text-sm font-bold transition hover:bg-[#F7F7F7]"
-                  onClick={() => setSelectedRequest(requestLog)}
-                >
-                  <span className="text-[#777777]">
-                    {formatWebhookDate(requestLog.receivedAt)}
-                  </span>
-                  <span>{requestLog.method}</span>
-                  <span
-                    className={
-                      requestLog.httpStatus >= 400
-                        ? "text-[#E30613]"
-                        : "text-emerald-700"
-                    }
-                  >
-                    {requestLog.httpStatus}
-                  </span>
-                  <span
-                    className={`rounded-full px-2.5 py-1 text-center text-xs ${
-                      requestLog.success
-                        ? "bg-emerald-50 text-emerald-700"
-                        : "bg-[#E30613]/10 text-[#E30613]"
-                    }`}
-                  >
-                    {requestLog.success ? "success" : "error"}
-                  </span>
-                  <span className="truncate">
-                    {requestLog.eventType ?? requestLog.error ?? "Unknown"}
-                  </span>
-                  <span className="truncate text-[#777777]">
-                    {requestLog.orderId ?? requestLog.clientIp ?? "Без orderId"}
-                  </span>
-                </button>
-              ))}
-            </div>
-          ) : (
-            <div className="mt-4 rounded-[24px] border border-dashed border-[#DADADA] bg-[#F7F7F7] p-5 text-sm font-bold text-[#777777]">
-              Журнал пуст. Webhook еще ни разу не вызывался.
-            </div>
-          )}
-        </div>
-
-        <details className="rounded-3xl border border-[#E6E6E6] bg-[#F7F7F7] p-4">
-          <summary className="cursor-pointer text-sm font-black text-[#777777]">
-            Диагностика
-          </summary>
-          <div className="mt-4 space-y-4">
-            <div>
-              <p className="text-sm font-bold text-[#777777]">Webhook URL</p>
-              <p className="mt-2 break-all font-mono text-sm font-black">
-                {webhookUrl}
-              </p>
-            </div>
-            <Info label="Warning" value={status?.warning ?? "Нет"} />
-            <div>
-              <p className="text-sm font-bold text-[#777777]">Пример curl</p>
-              <pre className="mt-3 overflow-x-auto whitespace-pre-wrap break-words text-xs font-bold leading-6 text-[#1A1A1A]">
-                {curlExample}
-              </pre>
-            </div>
-          </div>
-        </details>
-
-        <div className="flex flex-wrap gap-3">
-          <PrimaryButton onClick={onRefresh}>Обновить статус</PrimaryButton>
-          {hasRequests ? (
-            <>
-              <SecondaryButton
-                disabled={!payloadForViewer}
-                onClick={() => setShowPayload(true)}
+        {requestJournal.length > 0 ? (
+          <div className="mt-4 space-y-2">
+            <p className="text-xs font-black uppercase tracking-[0.18em] text-[#777777]">
+              Последние обращения
+            </p>
+            {requestJournal.slice(0, 20).map((entry) => (
+              <button
+                key={entry.id}
+                type="button"
+                className="w-full rounded-2xl bg-[#F7F7F7] p-3 text-left text-sm font-bold transition hover:bg-[#EFEFEF]"
+                onClick={() => setSelectedRequest(entry)}
               >
-                Показать последнее сообщение
-              </SecondaryButton>
-              <SecondaryButton onClick={onClear}>Очистить журнал</SecondaryButton>
-            </>
-          ) : null}
-        </div>
-      </div>
+                <span className="block text-[#3B2F2A]">
+                  {formatWebhookDate(entry.receivedAt)} · {entry.method} · {entry.httpStatus}
+                </span>
+                <span className="mt-1 block text-xs text-[#777777]">
+                  {entry.success ? "success" : "error"} · {entry.eventType ?? "Unknown"}
+                  {entry.orderId ? " · " + entry.orderId : ""}
+                  {entry.error ? " · " + entry.error : ""}
+                </span>
+              </button>
+            ))}
+          </div>
+        ) : null}
+      </details>
 
       {showPayload ? (
         <JsonViewerModal
           payload={payloadForViewer}
+          title="Последнее сообщение iiko"
           onClose={() => setShowPayload(false)}
         />
       ) : null}
       {selectedRequest ? (
         <JsonViewerModal
-          payload={{
-            error: selectedRequest.error,
-            headers: selectedRequest.headers,
-            parsedJson: selectedRequest.parsedJson,
-            rawBody: selectedRequest.rawBody,
-            request: {
-              clientIp: selectedRequest.clientIp,
-              contentType: selectedRequest.contentType,
-              eventType: selectedRequest.eventType,
-              hasAuthorization: selectedRequest.hasAuthorization,
-              hasHeaderToken: selectedRequest.hasHeaderToken,
-              hasQueryToken: selectedRequest.hasQueryToken,
-              httpStatus: selectedRequest.httpStatus,
-              httpStatusText: selectedRequest.httpStatusText,
-              method: selectedRequest.method,
-              orderId: selectedRequest.orderId,
-              path: selectedRequest.path,
-              receivedAt: selectedRequest.receivedAt,
-              success: selectedRequest.success,
-              userAgent: selectedRequest.userAgent,
-            },
-          }}
+          payload={selectedRequest}
+          title="Детали обращения к webhook"
           onClose={() => setSelectedRequest(null)}
         />
       ) : null}
@@ -820,123 +662,141 @@ function WebhookCard({
   );
 }
 
-function ConnectedSummary({
+function YookassaIntegrationCard() {
+  return (
+    <Card>
+      <IntegrationCardHeader
+        description="Оплата будет подключена позже. Сейчас API-запросы не выполняются."
+        status="Не подключено"
+        title="ЮKassa"
+        tone="neutral"
+      />
+      <div className="mt-5 rounded-3xl bg-[#F7F7F7] p-4">
+        <p className="text-base font-black text-[#3B2F2A]">Оплата будет подключена позже</p>
+        <p className="mt-2 text-sm font-bold leading-6 text-[#777777]">
+          Карточка оставлена как место будущего подключения. ENV, платежные запросы
+          и логика оплаты здесь не используются.
+        </p>
+      </div>
+    </Card>
+  );
+}
+
+function TabloIntegrationCard() {
+  return (
+    <Card>
+      <IntegrationCardHeader
+        description="Платформа заказов, витрины, экрана бариста и интеграций."
+        status="pilot"
+        title="Tablo"
+        tone="success"
+      />
+      <div className="mt-5 flex items-center gap-4 rounded-3xl bg-[#F7F7F7] p-4">
+        <div className="flex h-16 w-16 items-center justify-center rounded-3xl bg-white shadow-sm">
+          <Image src="/tablo-logo.png" alt="Tablo" width={56} height={56} />
+        </div>
+        <div>
+          <p className="text-base font-black text-[#3B2F2A]">
+            Платформа заказов и экрана бариста
+          </p>
+          <p className="mt-1 text-sm font-bold text-[#777777]">
+            Текущий клиент: Кафема Санаторная
+          </p>
+          <p className="mt-1 text-xs font-black uppercase tracking-[0.18em] text-[#C78A45]">
+            pilot
+          </p>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+function DeveloperDiagnostics({
   diagnostics,
-  result,
-  selectedOrganization,
-  lastSyncAt,
+  summary,
 }: {
   diagnostics: IikoCheckDiagnostics | null;
-  result: IikoConnectionResult;
-  selectedOrganization: IikoOrganization | null;
-  lastSyncAt: string;
+  summary: {
+    products: number;
+    categories: number;
+    modifiers: number;
+    terminalGroups: number;
+    stopLists: number;
+  };
 }) {
-  const organization = selectedOrganization ?? result.organization;
-  const metrics = diagnostics
-    ? {
-        categories: diagnostics.categoriesCount,
-        modifiers: diagnostics.modifiersCount,
-        products: diagnostics.productsCount,
-      }
-    : result.summary;
+  return (
+    <details className="rounded-[28px] border border-[#E9E1D7] bg-white p-5 shadow-[0_18px_50px_rgba(36,24,16,0.08)]">
+      <summary className="cursor-pointer text-base font-black text-[#3B2F2A]">
+        Технические детали
+      </summary>
+      <div className="mt-5 grid gap-4 xl:grid-cols-2">
+        <div className="rounded-3xl bg-[#F7F7F7] p-4">
+          <p className="text-sm font-black text-[#3B2F2A]">iiko request audit</p>
+          <ul className="mt-3 space-y-2 text-sm font-bold text-[#777777]">
+            {iikoReadOnlyRequests.map((request) => (
+              <li key={request.endpoint}>
+                {request.method} {request.endpoint} · {request.mode}
+              </li>
+            ))}
+          </ul>
+        </div>
+        <div className="rounded-3xl bg-[#F7F7F7] p-4">
+          <p className="text-sm font-black text-[#3B2F2A]">Последняя локальная сводка</p>
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <CompactMetric label="Товары" value={summary.products} />
+            <CompactMetric label="Категории" value={summary.categories} />
+            <CompactMetric label="Модификаторы" value={summary.modifiers} />
+            <CompactMetric label="Terminal groups" value={summary.terminalGroups} />
+          </div>
+        </div>
+      </div>
+      {diagnostics?.rawErrors && diagnostics.rawErrors.length > 0 ? (
+        <pre className="mt-5 max-h-72 overflow-auto rounded-3xl bg-[#111827] p-4 text-xs font-semibold leading-6 text-[#E5E7EB]">
+          {JSON.stringify(diagnostics.rawErrors, null, 2)}
+        </pre>
+      ) : null}
+    </details>
+  );
+}
+
+function IntegrationCardHeader({
+  description,
+  status,
+  title,
+  tone,
+}: {
+  description: string;
+  status: string;
+  title: string;
+  tone: "danger" | "neutral" | "success" | "warning";
+}) {
+  const toneClass =
+    tone === "success"
+      ? "border-[#CFE8D4] bg-[#ECF8EF] text-[#226B35]"
+      : tone === "warning"
+        ? "border-[#F1D7A6] bg-[#FFF4D7] text-[#8A6500]"
+        : tone === "danger"
+          ? "border-[#F3B8B8] bg-[#FFE7E7] text-[#B00020]"
+          : "border-[#E9E1D7] bg-[#F7F7F7] text-[#777777]";
 
   return (
-    <div className="space-y-4">
-      <div className="rounded-3xl bg-[#F7F7F7] p-4">
-        <p className="text-lg font-black text-emerald-600">🟢 Подключено</p>
-        <div className="mt-4 grid gap-3 md:grid-cols-2">
-          <Info label="Организация" value={organization.name} />
-          <Info label="authVersion" value={diagnostics?.authVersion ?? result.authVersion ?? "v2"} />
-          <Info
-            label="tokenReceived"
-            value={(diagnostics?.tokenReceived ?? result.tokenReceived) ? "true" : "false"}
-          />
-          <Info label="Версия iiko" value={result.version} />
-          <Info
-            label="Авторизация"
-            value={result.authVersion === "v2" ? "iiko Cloud API v2" : "Legacy"}
-          />
-          <Info label="organizationId" value={organization.id} />
-          <Info
-            label="terminalGroupId"
-            value={organization.terminalGroupId ?? "Не получен"}
-          />
-        </div>
+    <div className="flex items-start justify-between gap-4">
+      <div>
+        <h2 className="text-2xl font-black text-[#3B2F2A]">{title}</h2>
+        <p className="mt-1 text-sm font-bold leading-6 text-[#777777]">{description}</p>
       </div>
-
-      <IikoDiagnosticsSummary diagnostics={diagnostics} />
-
-      <div className="grid gap-3 md:grid-cols-5">
-        <Metric label="товаров" value={metrics.products} />
-        <Metric label="категорий" value={metrics.categories} />
-        <Metric label="модификаторов" value={metrics.modifiers} />
-        <Metric label="terminal groups" value={result.summary.terminalGroups} />
-        <Metric label="стоп-листов" value={result.summary.stopLists} />
-      </div>
-
-      <div className="rounded-3xl border border-[#E6E6E6] p-4">
-        <h3 className="font-black">Диагностика iiko</h3>
-        <div className="mt-3 grid gap-3 md:grid-cols-2">
-          <Info label="Статус подключения" value="Подключено" />
-          <Info label="Режим" value={result.mode === "real" ? "iiko" : "Локальные данные"} />
-          <Info label="Token получен" value={result.tokenReceived ? "Да" : "Нет"} />
-          <Info label="Меню получено" value={result.menuReceived ? "Да" : "Нет"} />
-          <Info label="Последняя успешная синхронизация" value={lastSyncAt} />
-          <Info label="Последняя ошибка" value={result.lastError ?? "Нет"} />
-          <Info label="Секреты" value="Не отображаются" />
-        </div>
-      </div>
+      <span className={"shrink-0 rounded-full border px-3 py-1 text-xs font-black " + toneClass}>
+        {status}
+      </span>
     </div>
   );
 }
 
-function IikoDiagnosticsSummary({
-  diagnostics,
-}: {
-  diagnostics: IikoCheckDiagnostics | null;
-}) {
-  if (!diagnostics) return null;
-
-  const productsMissing =
-    diagnostics.tokenReceived &&
-    Boolean(diagnostics.selectedOrganizationName) &&
-    Boolean(diagnostics.selectedTerminalGroupName) &&
-    diagnostics.productsCount === 0;
-
+function CompactMetric({ label, value }: { label: string; value: number }) {
   return (
-    <div className="rounded-3xl border border-[#E6E6E6] bg-white p-4">
-      <div className="grid gap-3 md:grid-cols-2">
-        <Info label="authVersion" value={diagnostics.authVersion} />
-        <Info label="tokenReceived" value={diagnostics.tokenReceived ? "true" : "false"} />
-        <Info
-          label="organizationName"
-          value={diagnostics.selectedOrganizationName ?? "Не получена"}
-        />
-        <Info
-          label="terminalGroupName"
-          value={diagnostics.selectedTerminalGroupName ?? "Не получена"}
-        />
-        <Info label="categoriesCount" value={String(diagnostics.categoriesCount)} />
-        <Info label="productsCount" value={String(diagnostics.productsCount)} />
-        <Info label="modifiersCount" value={String(diagnostics.modifiersCount)} />
-      </div>
-
-      {productsMissing ? (
-        <p className="mt-4 whitespace-pre-line rounded-2xl bg-[#FFF4D7] px-4 py-3 text-sm font-bold leading-6 text-[#8A6500]">
-          {`Авторизация успешна.
-Организация найдена.
-Терминальная группа найдена.
-iiko не возвращает товары.
-Категорий: ${diagnostics.categoriesCount}.
-Товаров: 0.`}
-        </p>
-      ) : null}
-
-      {diagnostics.cache?.warning ? (
-        <p className="mt-3 rounded-2xl bg-[#FFF4D7] px-4 py-3 text-sm font-bold text-[#8A6500]">
-          {diagnostics.cache.warning}
-        </p>
-      ) : null}
+    <div className="rounded-2xl bg-[#F7F7F7] p-3">
+      <p className="text-xl font-black text-[#3B2F2A]">{value}</p>
+      <p className="mt-1 text-xs font-bold text-[#777777]">{label}</p>
     </div>
   );
 }
@@ -944,9 +804,11 @@ iiko не возвращает товары.
 function JsonViewerModal({
   onClose,
   payload,
+  title = "Последнее сообщение iiko",
 }: {
   onClose: () => void;
   payload: unknown;
+  title?: string;
 }) {
   const formattedPayload = useMemo(
     () => JSON.stringify(payload ?? {}, null, 2),
@@ -958,7 +820,7 @@ function JsonViewerModal({
       <div className="max-h-[86vh] w-full max-w-4xl overflow-hidden rounded-[32px] bg-white shadow-[0_28px_90px_rgba(26,26,26,0.22)]">
         <div className="flex items-start justify-between gap-4 border-b border-[#E6E6E6] px-5 py-4">
           <div>
-            <h3 className="text-2xl font-black">Последнее сообщение iiko</h3>
+            <h3 className="text-2xl font-black">{title}</h3>
             <p className="mt-1 text-sm font-bold text-[#777777]">
               Полный payload без сокращений.
             </p>
@@ -978,18 +840,6 @@ function JsonViewerModal({
       </div>
     </div>
   );
-}
-
-function formatIikoEventStatus(message?: string) {
-  if (!message) {
-    return "Загружается";
-  }
-
-  if (message.toLowerCase().includes("webhook")) {
-    return "Готов к приему событий";
-  }
-
-  return message;
 }
 
 function formatWebhookDate(value?: string | null) {
@@ -1253,45 +1103,6 @@ function SettingsSection({
   );
 }
 
-function DeveloperDiagnostics({ summary }: { summary: { products: number; categories: number; modifiers: number; terminalGroups: number; stopLists: number } }) {
-  return (
-    <details className="xl:col-span-2 rounded-[28px] border border-[#E6E6E6] bg-white p-5">
-      <summary className="cursor-pointer text-lg font-black">
-        Для разработчика
-      </summary>
-      <div className="mt-4 flex items-start justify-between gap-4">
-        <div>
-          <h2 className="text-lg font-black">Расширенная диагностика iiko</h2>
-          <p className="mt-1 text-sm text-[#777777]">
-            Служебная информация для проверки интеграции и разрешенных запросов.
-          </p>
-        </div>
-        <span className="rounded-full bg-emerald-50 px-3 py-1.5 text-sm font-black text-emerald-700">
-          write-операций нет
-        </span>
-      </div>
-      <div className="mt-4 overflow-hidden rounded-2xl border border-[#EFEFEF]">
-        {iikoReadOnlyRequests.map((request) => (
-          <div
-            className="grid gap-3 border-b border-[#EFEFEF] px-4 py-3 text-sm last:border-b-0 md:grid-cols-[90px_220px_110px_1fr]"
-            key={request.endpoint}
-          >
-            <span className="font-black">{request.method}</span>
-            <span className="font-mono text-xs">{request.endpoint}</span>
-            <span className="font-bold text-emerald-700">{request.mode}</span>
-            <span className="text-[#777777]">{request.purpose}</span>
-          </div>
-        ))}
-      </div>
-      <p className="mt-3 text-xs font-bold text-[#777777]">
-        Локальная сводка: {summary.products} товаров, {summary.categories}{" "}
-        категорий, {summary.modifiers} модификаторов, {summary.terminalGroups}{" "}
-        terminal groups, {summary.stopLists} стоп-листов.
-      </p>
-    </details>
-  );
-}
-
 function Card({ children }: { children: ReactNode }) {
   return (
     <section className="rounded-[32px] border border-[#E6E6E6] bg-white p-5 shadow-[0_18px_44px_rgba(26,26,26,0.05)]">
@@ -1465,27 +1276,6 @@ function StatusPill({ connected }: { connected: boolean }) {
   );
 }
 
-function ConnectionBadge({ connected }: { connected: boolean }) {
-  return (
-    <span
-      className={`rounded-full px-3 py-1.5 text-sm font-black ${
-        connected ? "bg-emerald-50 text-emerald-700" : "bg-[#EFEFEF] text-[#777777]"
-      }`}
-    >
-      {connected ? "Подключено" : "Не подключено"}
-    </span>
-  );
-}
-
-function Metric({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="rounded-3xl bg-[#F7F7F7] p-4">
-      <p className="text-3xl font-black">{value}</p>
-      <p className="mt-1 text-sm font-bold text-[#777777]">{label}</p>
-    </div>
-  );
-}
-
 function Info({ label, value }: { label: string; value: string }) {
   return (
     <div>
@@ -1534,7 +1324,7 @@ function getIikoCategoryId(item: MenuItem) {
 }
 
 function getPageTitle(section: AdminSection) {
-  if (section === "connections") return "Центр подключений";
+  if (section === "connections") return "Интеграции";
   if (section === "storefront") return "Редактор витрины";
   if (section === "barista") return "Настройки бариста";
   if (section === "qr") return "QR-витрина";
@@ -1543,7 +1333,7 @@ function getPageTitle(section: AdminSection) {
 
 function getPageDescription(section: AdminSection) {
   if (section === "connections") {
-    return "Главный экран Manager. Здесь подключаются iiko и платежи, без ручного дублирования учетной системы.";
+    return "iiko Cloud API, iiko Webhook, ЮKassa и платформа Tablo в одном месте.";
   }
   if (section === "storefront") {
     return "Настройка красивого слоя поверх товаров, синхронизированных из iiko. Цены, категории и модификаторы не редактируются вручную.";
