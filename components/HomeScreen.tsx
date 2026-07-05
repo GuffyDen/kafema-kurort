@@ -4,13 +4,12 @@ import { useMemo, useState } from "react";
 import { BackgroundDecor } from "@/components/BackgroundDecor";
 import { BottomNavigation } from "@/components/BottomNavigation";
 import type { BottomNavigationItem } from "@/components/BottomNavigation";
-import { CartBar } from "@/components/CartBar";
 import { CartModal } from "@/components/CartModal";
 import type { CartItem } from "@/components/CartModal";
 import { CategoryCard } from "@/components/CategoryCard";
 import { CheckoutModal } from "@/components/CheckoutModal";
 import { EmptyState } from "@/components/EmptyState";
-import { Header } from "@/components/Header";
+import { Header, HeroCartButton } from "@/components/Header";
 import { OrderSuccessModal } from "@/components/OrderSuccessModal";
 import { ProductConfigurator } from "@/components/ProductConfigurator";
 import { ProductCard } from "@/components/ProductCard";
@@ -63,12 +62,20 @@ export function HomeScreen() {
       : null;
   }, [activeCategories, activeCategoryId]);
   const categories = useMemo(() => {
-    return activeCategories.map((category) => ({
-      id: category.id,
-      name: category.name,
-      icon: category.icon,
-      active: category.id === visibleActiveCategoryId,
-    }));
+    return [
+      {
+        id: "all",
+        name: "Все",
+        iconSrc: getCategoryIconSrc("all", "Все"),
+        active: visibleActiveCategoryId === null,
+      },
+      ...activeCategories.map((category) => ({
+        id: category.id,
+        name: category.name,
+        iconSrc: getCategoryIconSrc(category.id, category.name),
+        active: category.id === visibleActiveCategoryId,
+      })),
+    ];
   }, [activeCategories, visibleActiveCategoryId]);
 
   const products = useMemo(
@@ -246,9 +253,11 @@ export function HomeScreen() {
         <div className="relative z-10 mx-auto min-h-screen w-full max-w-md px-4 pb-44 pt-5">
           {activeSection === "menu" ? (
             <>
-              <Header
+              <HeroCartButton
                 cartCount={cartCount}
                 onCartOpen={() => setIsCartOpen(true)}
+              />
+              <Header
                 variant="hero"
               />
 
@@ -261,13 +270,14 @@ export function HomeScreen() {
                   {categories.map((category) => (
                     <CategoryCard
                       key={category.name}
-                      icon={category.icon}
+                      iconSrc={category.iconSrc}
                       name={category.name}
                       active={category.active}
                       onClick={() =>
-                        setActiveCategoryId((currentCategoryId) =>
-                          currentCategoryId === category.id ? null : category.id,
-                        )
+                        setActiveCategoryId((currentCategoryId) => {
+                          if (category.id === "all") return null;
+                          return currentCategoryId === category.id ? null : category.id;
+                        })
                       }
                     />
                   ))}
@@ -354,13 +364,6 @@ export function HomeScreen() {
         </div>
       </main>
 
-      {activeSection === "menu" ? (
-        <CartBar
-          itemsCount={cartCount}
-          total={cartTotal}
-          onOpen={() => setIsCartOpen(true)}
-        />
-      ) : null}
       <BottomNavigation activeItem={activeSection} onSelect={handleNavigation} />
 
       {isCartOpen ? (
@@ -586,6 +589,46 @@ function createCartItemId(productId: string, selection: MenuSelection) {
     variantId: selection.variantId ?? "",
     addonPairs,
   });
+}
+
+function getCategoryIconSrc(categoryId: string, categoryName: string) {
+  const normalizedId = normalizeCategoryKey(categoryId);
+  const normalizedName = normalizeCategoryKey(categoryName);
+  const key = `${normalizedId} ${normalizedName}`;
+
+  if (key.includes("all") || key.includes("все")) {
+    return "/icons/categories/all.svg";
+  }
+
+  if (key.includes("coffee") || key.includes("кофе")) {
+    return "/icons/categories/coffee.svg";
+  }
+
+  if (key.includes("cold") || key.includes("холод")) {
+    return "/icons/categories/cold.svg";
+  }
+
+  if (key.includes("bakery") || key.includes("выпеч")) {
+    return "/icons/categories/bakery.svg";
+  }
+
+  if (key.includes("dessert") || key.includes("десерт")) {
+    return "/icons/categories/desserts.svg";
+  }
+
+  if (key.includes("snack") || key.includes("перекус")) {
+    return "/icons/categories/snacks.svg";
+  }
+
+  if (key.includes("tea") || key.includes("чай")) {
+    return "/icons/categories/tea.svg";
+  }
+
+  return "/icons/categories/all.svg";
+}
+
+function normalizeCategoryKey(value: string) {
+  return value.trim().toLowerCase();
 }
 
 function getClientOrderStatusText(status: Order["status"]) {

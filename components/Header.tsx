@@ -4,6 +4,11 @@ type HeaderProps = {
   variant?: "compact" | "hero";
 };
 
+type HeroCartButtonProps = {
+  cartCount?: number;
+  onCartOpen: () => void;
+};
+
 export function Header({
   cartCount = 0,
   onCartOpen,
@@ -30,21 +35,6 @@ export function Header({
               alt="Кафема Курорт"
               className="-ml-9 -mt-10 h-auto w-[302px] object-contain drop-shadow-[0_10px_28px_rgba(45,24,14,0.26)]"
             />
-            {onCartOpen ? (
-              <button
-                type="button"
-                className="absolute right-0 top-2 flex h-[54px] shrink-0 items-center gap-2 rounded-full border border-white/65 bg-white/86 px-4 text-sm font-bold text-[var(--color-text-main)] shadow-[0_16px_34px_rgba(51,31,18,0.14)] backdrop-blur-2xl transition duration-500 hover:bg-white/96 active:scale-[0.98]"
-                onClick={onCartOpen}
-              >
-                <ShoppingBagIcon />
-                <span>Корзина</span>
-                {cartCount > 0 ? (
-                  <span className="flex h-7 min-w-7 items-center justify-center rounded-full bg-[#E30613] px-2 text-xs font-black text-white shadow-[0_6px_14px_rgba(227,6,19,0.22)]">
-                    {cartCount}
-                  </span>
-                ) : null}
-              </button>
-            ) : null}
           </div>
 
           <div className="mt-5 max-w-[18.5rem] drop-shadow-[0_3px_12px_rgba(43,28,20,0.30)]">
@@ -84,6 +74,29 @@ export function Header({
         </button>
       ) : null}
     </header>
+  );
+}
+
+export function HeroCartButton({
+  cartCount = 0,
+  onCartOpen,
+}: HeroCartButtonProps) {
+  return (
+    <div className="sticky top-[calc(env(safe-area-inset-top,0px)+14px)] z-50 -mb-[88px] mt-[34px] flex h-[54px] justify-end pr-2 pointer-events-none transition-all duration-700 ease-out">
+      <button
+        type="button"
+        className="flex h-[54px] shrink-0 items-center gap-2 rounded-full border border-white/65 bg-white/86 px-4 text-sm font-bold text-[var(--color-text-main)] shadow-[0_16px_34px_rgba(51,31,18,0.14)] backdrop-blur-2xl transition duration-500 ease-out hover:bg-white/96 active:scale-[0.98] pointer-events-auto"
+        onClick={onCartOpen}
+      >
+        <ShoppingBagIcon />
+        <span>Корзина</span>
+        {cartCount > 0 ? (
+          <span className="flex h-7 min-w-7 items-center justify-center rounded-full bg-[#E30613] px-2 text-xs font-black text-white shadow-[0_6px_14px_rgba(227,6,19,0.22)]">
+            {cartCount}
+          </span>
+        ) : null}
+      </button>
+    </div>
   );
 }
 

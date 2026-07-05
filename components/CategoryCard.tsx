@@ -1,12 +1,12 @@
 type CategoryCardProps = {
-  icon: string;
+  iconSrc: string;
   name: string;
   active?: boolean;
   onClick?: () => void;
 };
 
 export function CategoryCard({
-  icon,
+  iconSrc,
   name,
   active = false,
   onClick,
@@ -22,11 +22,23 @@ export function CategoryCard({
       onClick={onClick}
     >
       <span
-        className={`flex h-8 w-8 items-center justify-center rounded-full text-base ${
-          active ? "bg-white/16 text-white" : "bg-[#F2E7D9]"
+        className={`flex h-8 w-8 items-center justify-center rounded-full ${
+          active ? "bg-white/88 text-[#E30613]" : "bg-[#F2E7D9] text-[#3F342D]"
         }`}
       >
-        {icon}
+        <span
+          className="h-6 w-6 bg-current"
+          style={{
+            maskImage: `url(${iconSrc})`,
+            maskPosition: "center",
+            maskRepeat: "no-repeat",
+            maskSize: "contain",
+            WebkitMaskImage: `url(${iconSrc})`,
+            WebkitMaskPosition: "center",
+            WebkitMaskRepeat: "no-repeat",
+            WebkitMaskSize: "contain",
+          }}
+        />
       </span>
       <span className="whitespace-nowrap text-sm font-semibold">{name}</span>
     </button>
