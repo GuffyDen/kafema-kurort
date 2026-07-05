@@ -5,6 +5,7 @@ import { BackgroundDecor } from "@/components/BackgroundDecor";
 import type { Product } from "@/components/ProductCard";
 import {
   configureMenuItem,
+  fallbackImageSrc,
   getAvailableVariants,
   getDefaultMenuSelection,
   getMenuItemAddonGroups,
@@ -89,10 +90,10 @@ export function ProductConfigurator({
   return (
     <div className="fixed inset-0 z-50 flex items-center overflow-hidden bg-[#F5EEE3]/95 px-4 py-8 backdrop-blur">
       <BackgroundDecor />
-      <div className="relative z-10 mx-auto flex max-h-full w-full max-w-md flex-col overflow-hidden rounded-[var(--radius-xxl)] bg-[var(--color-card)] shadow-[var(--shadow-soft)]">
+      <div className="relative z-10 mx-auto flex max-h-full w-full max-w-md flex-col overflow-hidden rounded-[34px] bg-[#FFF9F0] shadow-[0_24px_64px_rgba(64,39,23,0.16)]">
         <div className="flex items-start justify-between gap-4 border-b border-[#E8D9C8] px-5 py-5">
           <div>
-            <h2 className="text-2xl font-black text-[var(--color-text-main)]">
+            <h2 className="font-serif text-[2rem] font-bold leading-tight text-[var(--color-text-main)]">
               {currentProduct.name}
             </h2>
             <p className="mt-1 text-sm text-[var(--color-text-muted)]">{currentProduct.description}</p>
@@ -108,13 +109,25 @@ export function ProductConfigurator({
         </div>
 
         <div className="flex-1 space-y-5 overflow-y-auto px-5 py-5">
+          <div className="relative aspect-[1.35] overflow-hidden rounded-[28px] bg-[#EFE2D1] shadow-[0_14px_34px_rgba(64,39,23,0.08)]">
+            <img
+              src={currentProduct.imageSrc}
+              alt={currentProduct.name}
+              className="h-full w-full object-cover"
+              onError={(event) => {
+                if (event.currentTarget.src.endsWith(fallbackImageSrc)) return;
+                event.currentTarget.src = fallbackImageSrc;
+              }}
+            />
+          </div>
+
           {variants.length > 0 ? (
             <section>
-              <h3 className="text-base font-black text-[var(--color-text-main)]">Размер</h3>
+              <h3 className="font-serif text-xl font-bold text-[var(--color-text-main)]">Размер</h3>
               <div className="mt-3 space-y-2">
                 {variants.map((variant) => (
                   <label
-                    className="flex min-h-12 items-center justify-between gap-3 rounded-[22px] border border-[#E8D9C8] bg-[#FFFDF8] px-4 py-3"
+                    className="flex min-h-12 items-center justify-between gap-3 rounded-[22px] border border-[#E8D9C8] bg-white/72 px-4 py-3 shadow-[0_8px_20px_rgba(64,39,23,0.04)]"
                     key={variant.id}
                   >
                     <span className="flex items-center gap-3">
@@ -151,14 +164,14 @@ export function ProductConfigurator({
                   <h3 className="text-base font-black text-[var(--color-text-main)]">
                     {group.icon} {group.name}
                   </h3>
-                  <span className="rounded-full bg-[#F2E7D9] px-3 py-1 text-xs font-bold text-[var(--color-text-muted)]">
+                  <span className="rounded-full bg-[#F2E7D9]/80 px-3 py-1 text-xs font-bold text-[var(--color-text-muted)]">
                     {group.required ? "Обязательно" : "Необязательно"}
                   </span>
                 </div>
 
                 <div className="mt-3 space-y-2">
                   {showEmptySingleOption ? (
-                    <label className="flex min-h-12 items-center rounded-[22px] border border-[#E8D9C8] bg-[#FFFDF8] px-4 py-3">
+                    <label className="flex min-h-12 items-center rounded-[22px] border border-[#E8D9C8] bg-white/72 px-4 py-3 shadow-[0_8px_20px_rgba(64,39,23,0.04)]">
                       <span className="flex items-center gap-3">
                         <input
                           type="radio"
@@ -180,7 +193,7 @@ export function ProductConfigurator({
 
                     return (
                       <label
-                        className="flex min-h-12 items-center justify-between gap-3 rounded-[22px] border border-[#E8D9C8] bg-[#FFFDF8] px-4 py-3"
+                        className="flex min-h-12 items-center justify-between gap-3 rounded-[22px] border border-[#E8D9C8] bg-white/72 px-4 py-3 shadow-[0_8px_20px_rgba(64,39,23,0.04)]"
                         key={option.id}
                       >
                         <span className="flex items-center gap-3">

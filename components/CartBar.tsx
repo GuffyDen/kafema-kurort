@@ -29,17 +29,19 @@ export function CartBar({ itemsCount, total, onOpen }: CartBarProps) {
   return (
     <div
       className="fixed inset-x-0 z-40 px-4"
-      style={{ bottom: "calc(104px + env(safe-area-inset-bottom, 0px))" }}
+      style={{ bottom: "calc(112px + env(safe-area-inset-bottom, 0px))" }}
     >
       <button
         type="button"
-        className="mx-auto flex h-16 w-full max-w-md items-center justify-between rounded-[28px] bg-[var(--color-caramel)] px-5 text-white shadow-[0_20px_46px_rgba(189,134,73,0.28)] transition duration-300 hover:bg-[#A86F34] active:scale-[0.99]"
+        className="mx-auto flex h-[60px] w-full max-w-md items-center justify-between rounded-full border border-white/60 bg-[#FFF9F0]/95 px-5 text-[var(--color-text-main)] shadow-[0_18px_40px_rgba(64,39,23,0.14)] backdrop-blur-xl transition duration-500 hover:bg-white active:scale-[0.99]"
         onClick={onOpen}
       >
-        <span className="text-base font-semibold">
+        <span className="text-base font-bold">
           Корзина · {formatItemsCount(itemsCount)}
         </span>
-        <span className="text-lg font-bold">{total.toLocaleString("ru-RU")} ₽</span>
+        <span className="rounded-full bg-[#E30613] px-4 py-2 text-sm font-black text-white">
+          {total.toLocaleString("ru-RU")} ₽
+        </span>
       </button>
     </div>
   );

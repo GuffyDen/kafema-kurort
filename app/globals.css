@@ -1,13 +1,13 @@
 @import "tailwindcss";
 
 :root {
-  --color-bg-cream: #f5eee3;
-  --color-card: #fffaf2;
+  --color-bg-cream: #f8f1e7;
+  --color-card: #fff9f0;
   --color-coffee: #2c2018;
-  --color-caramel: #bd8649;
+  --color-caramel: #b9824c;
   --color-text-main: #2a1d15;
-  --color-text-muted: #8f7d69;
-  --shadow-soft: 0 24px 60px rgba(73, 52, 36, 0.12);
+  --color-text-muted: #8c7968;
+  --shadow-soft: 0 18px 44px rgba(64, 39, 23, 0.08);
   --radius-xl: 24px;
   --radius-xxl: 36px;
   --background: var(--color-bg-cream);
@@ -24,15 +24,10 @@
 body {
   position: relative;
   background:
-    radial-gradient(ellipse at 7% 24%, rgba(69, 48, 34, 0.08) 0 0.45rem, transparent 0.52rem),
-    radial-gradient(ellipse at 93% 8%, rgba(69, 48, 34, 0.07) 0 0.42rem, transparent 0.5rem),
-    radial-gradient(ellipse at 96% 34%, rgba(69, 48, 34, 0.06) 0 0.48rem, transparent 0.56rem),
-    radial-gradient(ellipse at 10% 78%, rgba(69, 48, 34, 0.06) 0 0.5rem, transparent 0.58rem),
-    radial-gradient(ellipse at 88% 72%, rgba(69, 48, 34, 0.05) 0 0.4rem, transparent 0.48rem),
-    radial-gradient(circle at 12% 12%, rgba(189, 134, 73, 0.12), transparent 24%),
-    radial-gradient(circle at 92% 4%, rgba(255, 253, 248, 0.85), transparent 26%),
-    radial-gradient(circle at 86% 84%, rgba(221, 191, 154, 0.18), transparent 28%),
-    linear-gradient(135deg, #f8f4ee 0%, #fffaf2 42%, #f2e4d1 100%);
+    radial-gradient(circle at 12% 8%, rgba(227, 6, 19, 0.08), transparent 24%),
+    radial-gradient(circle at 86% 16%, rgba(255, 255, 255, 0.78), transparent 26%),
+    radial-gradient(circle at 80% 78%, rgba(218, 190, 154, 0.18), transparent 28%),
+    linear-gradient(135deg, #fbf6ee 0%, #fff9f0 46%, #f4e7d6 100%);
   color: var(--foreground);
   color-scheme: light;
   font-family: Arial, Helvetica, sans-serif;

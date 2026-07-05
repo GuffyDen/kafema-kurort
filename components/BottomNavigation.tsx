@@ -1,9 +1,14 @@
-export type BottomNavigationItem = "menu" | "orders" | "profile";
+export type BottomNavigationItem = "menu" | "orders" | "sea" | "profile";
 
-const navigationItems: Array<{ id: BottomNavigationItem; label: string }> = [
-  { id: "menu", label: "Меню" },
-  { id: "orders", label: "Заказы" },
-  { id: "profile", label: "Профиль" },
+const navigationItems: Array<{
+  id: BottomNavigationItem;
+  icon: string;
+  label: string;
+}> = [
+  { id: "menu", icon: "☕", label: "Меню" },
+  { id: "orders", icon: "📦", label: "Заказы" },
+  { id: "sea", icon: "🌊", label: "Мы у моря" },
+  { id: "profile", icon: "👤", label: "Профиль" },
 ];
 
 type BottomNavigationProps = {
@@ -16,21 +21,26 @@ export function BottomNavigation({
   onSelect,
 }: BottomNavigationProps) {
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-[#E8D9C8] bg-[#F5EEE3]/90 px-4 pb-5 pt-3 shadow-[0_-12px_30px_rgba(73,52,36,0.10)] backdrop-blur">
-      <div className="mx-auto grid max-w-md grid-cols-3 gap-2 rounded-[28px] bg-[var(--color-card)] p-2 shadow-[var(--shadow-soft)]">
-        {navigationItems.map((item) => (
-          <button
-            key={item.id}
-            onClick={() => onSelect(item.id)}
-            className={`h-12 rounded-[18px] px-2 text-xs font-semibold transition duration-300 active:scale-95 ${
-              activeItem === item.id
-                ? "bg-[#BD8649] text-white shadow-[0_12px_22px_rgba(189,134,73,0.20)]"
-                : "bg-[#FFF7EA] text-[var(--color-text-muted)] shadow-[0_8px_18px_rgba(73,52,36,0.08)] hover:bg-[#F8E2C3] hover:text-[var(--color-text-main)]"
-            }`}
-          >
-            {item.label}
-          </button>
-        ))}
+    <nav className="fixed inset-x-0 bottom-0 z-30 px-4 pb-[calc(1.25rem+env(safe-area-inset-bottom,0px))] pt-3">
+      <div className="mx-auto grid max-w-md grid-cols-4 gap-1 rounded-[30px] border border-white/70 bg-[#FFF9F0]/92 p-2 shadow-[0_-10px_34px_rgba(64,39,23,0.12),0_18px_52px_rgba(64,39,23,0.10)] backdrop-blur-xl">
+        {navigationItems.map((item) => {
+          const active = activeItem === item.id;
+
+          return (
+            <button
+              key={item.id}
+              onClick={() => onSelect(item.id)}
+              className={`flex min-h-[58px] flex-col items-center justify-center gap-1 rounded-[22px] px-1 text-[11px] font-semibold transition duration-500 active:scale-95 ${
+                active
+                  ? "bg-[#FFF0E7] text-[#E30613] shadow-[0_12px_24px_rgba(64,39,23,0.10)]"
+                  : "text-[var(--color-text-main)] hover:bg-[#FFF7EA]"
+              }`}
+            >
+              <span className="text-xl leading-none">{item.icon}</span>
+              <span className="leading-none">{item.label}</span>
+            </button>
+          );
+        })}
       </div>
     </nav>
   );

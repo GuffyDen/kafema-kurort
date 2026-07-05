@@ -40,7 +40,6 @@ export function HomeScreen() {
   const [isViewingOrderDetail, setIsViewingOrderDetail] = useState(false);
   const [activeCategoryId, setActiveCategoryId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [greeting] = useState(() => getVladivostokGreeting());
   const orders = useOrders();
   const activeOrder = useOrder(activeOrderId);
   const clientOrders = useMemo(
@@ -247,16 +246,11 @@ export function HomeScreen() {
         <div className="relative z-10 mx-auto min-h-screen w-full max-w-md px-4 pb-44 pt-5">
           {activeSection === "menu" ? (
             <>
-              <Header />
-
-              <section className="mt-8">
-                <h1 className="text-[30px] font-black leading-tight text-[var(--color-text-main)]">
-                  {greeting}
-                </h1>
-                <p className="mt-2 text-base leading-6 text-[var(--color-text-muted)]">
-                  Что закажем сегодня?
-                </p>
-              </section>
+              <Header
+                cartCount={cartCount}
+                onCartOpen={() => setIsCartOpen(true)}
+                variant="hero"
+              />
 
               <div className="mt-6">
                 <SearchBar value={searchQuery} onChange={setSearchQuery} />
@@ -280,7 +274,7 @@ export function HomeScreen() {
                 </div>
               </section>
 
-              <section className="mt-7">
+              <section className="mt-6">
                 <div className="grid grid-cols-2 gap-4">
                   {visibleProducts.length > 0 ? (
                     visibleProducts.map((product) => (
@@ -303,6 +297,30 @@ export function HomeScreen() {
                   )}
                 </div>
               </section>
+
+              <button
+                type="button"
+                className="relative mt-6 flex h-36 w-full items-end justify-between overflow-hidden rounded-[28px] bg-[#2F4A45] p-5 text-left text-white shadow-[0_18px_42px_rgba(64,39,23,0.12)]"
+                onClick={() => setActiveSection("sea")}
+              >
+                <img
+                  src="/client/kafema-sea-atmosphere.jpg"
+                  alt=""
+                  className="absolute left-0 top-0 h-full w-full object-cover"
+                />
+                <span className="absolute inset-0 bg-[linear-gradient(90deg,rgba(39,54,50,0.74),rgba(39,54,50,0.12))]" />
+                <span className="relative z-10">
+                  <span className="block font-serif text-3xl font-bold">
+                    Мы у моря
+                  </span>
+                  <span className="mt-2 block text-base font-semibold text-white/86">
+                    Посмотреть атмосферу
+                  </span>
+                </span>
+                <span className="relative z-10 flex h-12 w-12 items-center justify-center rounded-full bg-[#FFF9F0]/92 text-2xl text-[var(--color-text-main)] shadow-[0_12px_24px_rgba(64,39,23,0.12)]">
+                  ›
+                </span>
+              </button>
             </>
           ) : null}
 
@@ -328,6 +346,10 @@ export function HomeScreen() {
               actionLabel="Перейти в меню"
               onAction={() => setActiveSection("menu")}
             />
+          ) : null}
+
+          {activeSection === "sea" ? (
+            <SeaSection onBackToMenu={() => setActiveSection("menu")} />
           ) : null}
         </div>
       </main>
@@ -471,6 +493,89 @@ function ClientOrdersList({
   );
 }
 
+function SeaSection({ onBackToMenu }: { onBackToMenu: () => void }) {
+  return (
+    <>
+      <Header variant="compact" />
+      <section className="mt-8">
+        <div className="overflow-hidden rounded-[34px] bg-[#2F4A45] shadow-[0_20px_50px_rgba(64,39,23,0.12)]">
+          <div className="relative h-72">
+            <img
+              src="/client/kafema-sea-atmosphere.jpg"
+              alt=""
+              className="h-full w-full object-cover"
+            />
+            <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(39,54,50,0.08),rgba(39,54,50,0.70))]" />
+            <div className="absolute bottom-0 left-0 right-0 p-6 text-white">
+              <p className="font-serif text-[2.4rem] font-bold leading-none">
+                Мы у моря
+              </p>
+              <p className="mt-3 max-w-[15rem] text-base font-semibold leading-7 text-white/88">
+                Солнце, волны, свежая выпечка и кофе без спешки.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-5 grid grid-cols-2 gap-3">
+          <AtmosphereTile
+            image="/client/kafema-sea-hero.jpg"
+            label="Кофе на солнце"
+            tall
+          />
+          <AtmosphereTile
+            image="/products/croissant.jpg"
+            label="Утренняя выпечка"
+          />
+          <AtmosphereTile
+            image="/products/latte.jpg"
+            label="Мягкий латте"
+          />
+          <AtmosphereTile
+            image="/client/kafema-sea-atmosphere.jpg"
+            label="Берег рядом"
+            wide
+          />
+        </div>
+
+        <button
+          type="button"
+          className="mt-6 h-[58px] w-full rounded-full bg-[#E30613] px-6 text-base font-black text-white shadow-[0_18px_34px_rgba(227,6,19,0.18)] transition duration-500 active:scale-[0.99]"
+          onClick={onBackToMenu}
+        >
+          Вернуться в меню
+        </button>
+      </section>
+    </>
+  );
+}
+
+function AtmosphereTile({
+  image,
+  label,
+  tall = false,
+  wide = false,
+}: {
+  image: string;
+  label: string;
+  tall?: boolean;
+  wide?: boolean;
+}) {
+  return (
+    <article
+      className={`relative overflow-hidden rounded-[26px] bg-[#EADBC9] shadow-[0_14px_34px_rgba(64,39,23,0.10)] ${
+        tall ? "row-span-2 min-h-64" : "min-h-32"
+      } ${wide ? "col-span-2 min-h-40" : ""}`}
+    >
+      <img src={image} alt="" className="absolute inset-0 h-full w-full object-cover" />
+      <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(43,29,21,0.02),rgba(43,29,21,0.48))]" />
+      <p className="absolute bottom-4 left-4 right-4 font-serif text-xl font-bold leading-tight text-white drop-shadow-[0_2px_8px_rgba(43,29,21,0.4)]">
+        {label}
+      </p>
+    </article>
+  );
+}
+
 function createCartItemId(productId: string, selection: MenuSelection) {
   const addonPairs = Object.entries(selection.addonOptionIdsByGroupId)
     .map(([groupId, optionIds]) => [groupId, [...optionIds].sort()] as const)
@@ -522,23 +627,6 @@ function getOrderTime(order: Order) {
 function getStoredActiveOrderId() {
   if (typeof window === "undefined") return null;
   return localStorage.getItem("kafema-active-order-id");
-}
-
-function getVladivostokGreeting(date = new Date()) {
-  const hourPart = new Intl.DateTimeFormat("ru-RU", {
-    hour: "2-digit",
-    hour12: false,
-    hourCycle: "h23",
-    timeZone: "Asia/Vladivostok",
-  })
-    .formatToParts(date)
-    .find((part) => part.type === "hour")?.value;
-  const hour = Number(hourPart ?? 0);
-
-  if (hour >= 5 && hour < 12) return "Доброе утро! ☀️";
-  if (hour >= 12 && hour < 18) return "Добрый день! ☀️";
-  if (hour >= 18) return "Добрый вечер! 🌙";
-  return "Доброй ночи! 🌙";
 }
 
 function normalizeSearch(value: string) {

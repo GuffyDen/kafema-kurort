@@ -21,9 +21,9 @@ export function ProductCard({ product, onAdd }: ProductCardProps) {
 
   return (
     <article
-      className={`overflow-hidden rounded-[30px] border border-[#E8D9C8] bg-[var(--color-card)] shadow-[var(--shadow-soft)] transition duration-300 ${
+      className={`overflow-hidden rounded-[24px] border border-[#EFE2D4] bg-[#FFF9F0] shadow-[0_16px_36px_rgba(64,39,23,0.08)] transition duration-500 ${
         canAdd
-          ? "hover:-translate-y-0.5 hover:shadow-[0_28px_62px_rgba(73,52,36,0.16)]"
+          ? "hover:-translate-y-0.5 hover:shadow-[0_24px_48px_rgba(64,39,23,0.12)]"
           : "opacity-60"
       }`}
     >
@@ -38,27 +38,29 @@ export function ProductCard({ product, onAdd }: ProductCardProps) {
           }}
         />
         {!canAdd ? (
-          <span className="absolute left-3 top-3 rounded-full bg-[var(--color-card)] px-3 py-1 text-xs font-bold text-[var(--color-text-muted)] shadow-sm">
+          <span className="absolute left-3 top-3 rounded-full bg-[#FFF9F0]/92 px-3 py-1 text-xs font-bold text-[var(--color-text-muted)] shadow-sm backdrop-blur">
             Нет в наличии
           </span>
         ) : null}
       </div>
 
       <div className="p-4">
-        <h3 className="truncate text-base font-bold text-[var(--color-text-main)]">
+        <h3 className="truncate font-serif text-[1.22rem] font-bold leading-tight text-[var(--color-text-main)]">
           {product.name}
         </h3>
-        <p className="mt-1 truncate text-sm text-[var(--color-text-muted)]">{summary}</p>
+        <p className="mt-2 line-clamp-2 min-h-[2.5rem] text-sm leading-5 text-[var(--color-text-main)]/75">
+          {summary}
+        </p>
 
         <div className="mt-4 flex items-center justify-between">
-          <p className="text-lg font-black text-[var(--color-text-main)]">
+          <p className="text-xl font-black text-[var(--color-text-main)]">
             {price.toLocaleString("ru-RU")} ₽
           </p>
           <button
             type="button"
-            className={`flex h-11 w-11 items-center justify-center rounded-[14px] text-2xl leading-none shadow-[0_14px_26px_rgba(189,134,73,0.18)] transition duration-300 active:scale-95 ${
+            className={`flex h-11 w-11 items-center justify-center rounded-full text-2xl leading-none shadow-[0_12px_24px_rgba(64,39,23,0.12)] transition duration-500 active:scale-95 ${
               canAdd
-                ? "border border-[#E8CBA7] bg-[#F8E2C3] text-[#9A642B] hover:bg-[#EFC58F] active:bg-[#DDBF99]"
+                ? "border border-[#EAD8C2] bg-[#F4E5D2] text-[var(--color-text-main)] hover:bg-[#EFD5B3] active:bg-[#E6C399]"
                 : "cursor-not-allowed bg-[#E8D9C8] text-[var(--color-text-muted)] shadow-none"
             }`}
             onClick={() => onAdd(product)}
