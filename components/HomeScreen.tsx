@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { BackgroundDecor } from "@/components/BackgroundDecor";
 import { BottomNavigation } from "@/components/BottomNavigation";
 import type { BottomNavigationItem } from "@/components/BottomNavigation";
@@ -39,6 +39,9 @@ export function HomeScreen() {
   const [isViewingOrderDetail, setIsViewingOrderDetail] = useState(false);
   const [activeCategoryId, setActiveCategoryId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [isCartPinned, setIsCartPinned] = useState(
+    () => typeof window !== "undefined" && window.scrollY > 48,
+  );
   const orders = useOrders();
   const activeOrder = useOrder(activeOrderId);
   const clientOrders = useMemo(
@@ -113,6 +116,16 @@ export function HomeScreen() {
       ),
     [cartItems],
   );
+
+  useEffect(() => {
+    function updateCartPosition() {
+      setIsCartPinned(window.scrollY > 48);
+    }
+
+    window.addEventListener("scroll", updateCartPosition, { passive: true });
+
+    return () => window.removeEventListener("scroll", updateCartPosition);
+  }, []);
 
   function addConfiguredItem(
     configuredItem: ConfiguredMenuItem,
@@ -256,6 +269,7 @@ export function HomeScreen() {
               <HeroCartButton
                 cartCount={cartCount}
                 onCartOpen={() => setIsCartOpen(true)}
+                pinned={isCartPinned}
               />
               <Header
                 variant="hero"

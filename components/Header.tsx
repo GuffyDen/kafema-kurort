@@ -7,6 +7,7 @@ type HeaderProps = {
 type HeroCartButtonProps = {
   cartCount?: number;
   onCartOpen: () => void;
+  pinned?: boolean;
 };
 
 export function Header({
@@ -80,22 +81,35 @@ export function Header({
 export function HeroCartButton({
   cartCount = 0,
   onCartOpen,
+  pinned = false,
 }: HeroCartButtonProps) {
   return (
-    <div className="sticky top-[calc(env(safe-area-inset-top,0px)+14px)] z-50 -mb-[88px] mt-[34px] flex h-[54px] justify-end pr-2 pointer-events-none transition-all duration-700 ease-out">
-      <button
-        type="button"
-        className="flex h-[54px] shrink-0 items-center gap-2 rounded-full border border-white/65 bg-white/86 px-4 text-sm font-bold text-[var(--color-text-main)] shadow-[0_16px_34px_rgba(51,31,18,0.14)] backdrop-blur-2xl transition duration-500 ease-out hover:bg-white/96 active:scale-[0.98] pointer-events-auto"
-        onClick={onCartOpen}
-      >
-        <ShoppingBagIcon />
-        <span>Корзина</span>
-        {cartCount > 0 ? (
-          <span className="flex h-7 min-w-7 items-center justify-center rounded-full bg-[#E30613] px-2 text-xs font-black text-white shadow-[0_6px_14px_rgba(227,6,19,0.22)]">
-            {cartCount}
-          </span>
-        ) : null}
-      </button>
+    <div
+      className={`fixed inset-x-0 z-50 pointer-events-none transition-[top] duration-700 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+        pinned
+          ? "top-[calc(env(safe-area-inset-top,0px)+14px)]"
+          : "top-[calc(env(safe-area-inset-top,0px)+54px)]"
+      }`}
+    >
+      <div className="mx-auto flex w-full max-w-md justify-end px-6">
+        <button
+          type="button"
+          className={`pointer-events-auto flex h-[54px] shrink-0 items-center gap-2 rounded-full border px-4 text-sm font-bold text-[var(--color-text-main)] backdrop-blur-2xl transition duration-500 ease-out hover:bg-white/96 active:scale-[0.98] ${
+            pinned
+              ? "border-white/72 bg-[#FFF9F0]/92 shadow-[0_14px_30px_rgba(51,31,18,0.16)]"
+              : "border-white/65 bg-white/86 shadow-[0_16px_34px_rgba(51,31,18,0.14)]"
+          }`}
+          onClick={onCartOpen}
+        >
+          <ShoppingBagIcon />
+          <span>Корзина</span>
+          {cartCount > 0 ? (
+            <span className="flex h-7 min-w-7 items-center justify-center rounded-full bg-[#E30613] px-2 text-xs font-black text-white shadow-[0_6px_14px_rgba(227,6,19,0.22)]">
+              {cartCount}
+            </span>
+          ) : null}
+        </button>
+      </div>
     </div>
   );
 }
