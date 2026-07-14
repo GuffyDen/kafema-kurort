@@ -21,7 +21,11 @@ export type IikoWebhookRequestLog = {
   error: string | null;
   eventType: string | null;
   orderId: string | null;
+  posId: string | null;
   orderStatus: string | null;
+  terminalGroupId: string | null;
+  organizationId: string | null;
+  correlationId: string | null;
   rawBody: string | null;
   parsedJson: unknown | null;
   headers: Record<string, string | boolean | null>;
@@ -31,13 +35,36 @@ export type IikoWebhookSnapshot = {
   receivedAt: string;
   eventType: string;
   orderId: string | null;
+  posId: string | null;
   status: string | null;
+  terminalGroupId: string | null;
+  organizationId: string | null;
+  correlationId: string | null;
   timestamp: string;
   httpStatus: number;
   httpStatusText: string;
   clientIp: string | null;
   orderEvent: IikoWebhookOrderEvent | null;
   rawPayload: unknown;
+};
+
+export type IikoWebhookOrderItemSummary = {
+  productId: string | null;
+  name: string | null;
+  amount: number | null;
+};
+
+export type IikoWebhookExtractedEvent = {
+  eventType: string | null;
+  source: "IIKO";
+  orderId: string | null;
+  posId: string | null;
+  orderStatus: string | null;
+  terminalGroupId: string | null;
+  organizationId: string | null;
+  correlationId: string | null;
+  itemsCount: number;
+  items: IikoWebhookOrderItemSummary[];
 };
 
 export type IikoWebhookAttempt = {
@@ -140,7 +167,11 @@ function saveSuccessfulWebhookEvent(
     receivedAt,
     eventType,
     orderId,
+    posId: requestLog.posId,
     status,
+    terminalGroupId: requestLog.terminalGroupId,
+    organizationId: requestLog.organizationId,
+    correlationId: requestLog.correlationId,
     timestamp,
     httpStatus: requestLog.httpStatus,
     httpStatusText: requestLog.httpStatusText,
@@ -163,15 +194,74 @@ function saveSuccessfulWebhookEvent(
 }
 
 export function extractIikoWebhookFields(payload: unknown) {
+  const events = extractIikoWebhookEvents(payload);
+  const event = events.find((item) => item.orderId) ?? events[0];
+
   return {
-    eventType: extractString(payload, ["eventType", "type", "event.type"]) ?? null,
-    orderId:
-      extractString(payload, ["orderId", "id", "order.id", "order.orderId"]) ??
-      null,
-    orderStatus:
-      extractString(payload, ["status", "order.status", "order.orderStatus"]) ??
-      null,
+    eventType: event?.eventType ?? null,
+    orderId: event?.orderId ?? null,
+    posId: event?.posId ?? null,
+    orderStatus: event?.orderStatus ?? null,
+    terminalGroupId: event?.terminalGroupId ?? null,
+    organizationId: event?.organizationId ?? null,
+    correlationId: event?.correlationId ?? null,
   };
+}
+
+export function extractIikoWebhookEvents(
+  payload: unknown,
+): IikoWebhookExtractedEvent[] {
+  const payloads = Array.isArray(payload) ? payload : [payload];
+
+  return payloads
+    .filter(isRecord)
+    .map((event) => {
+      const items = extractOrderItems(event);
+
+      return {
+        eventType:
+          extractString(event, ["eventType", "type", "event.type"]) ?? null,
+        source: "IIKO" as const,
+        orderId:
+          extractString(event, [
+            "eventInfo.id",
+            "orderId",
+            "id",
+            "order.id",
+            "order.orderId",
+          ]) ?? null,
+        posId:
+          extractString(event, [
+            "eventInfo.posId",
+            "posId",
+            "order.posId",
+          ]) ?? null,
+        orderStatus:
+          extractString(event, [
+            "eventInfo.order.status",
+            "status",
+            "order.status",
+            "order.orderStatus",
+          ]) ?? null,
+        terminalGroupId:
+          extractString(event, [
+            "eventInfo.order.terminalGroupId",
+            "terminalGroupId",
+            "order.terminalGroupId",
+          ]) ?? null,
+        organizationId:
+          extractString(event, [
+            "organizationId",
+            "eventInfo.organizationId",
+            "order.organizationId",
+          ]) ?? null,
+        correlationId:
+          extractString(event, ["correlationId", "eventInfo.correlationId"]) ??
+          null,
+        itemsCount: items.length,
+        items,
+      };
+    });
 }
 
 function extractString(payload: unknown, paths: string[]) {
@@ -189,4 +279,53 @@ function getValueByPath(payload: unknown, path: string): unknown {
     if (!current || typeof current !== "object") return undefined;
     return (current as Record<string, unknown>)[key];
   }, payload);
+}
+
+function extractOrderItems(payload: unknown): IikoWebhookOrderItemSummary[] {
+  const items = [
+    "eventInfo.order.items",
+    "order.items",
+    "items",
+  ]
+    .map((path) => getValueByPath(payload, path))
+    .find(Array.isArray);
+
+  if (!items) return [];
+
+  return items.filter(isRecord).flatMap((item) => {
+    const products = [
+      getValueByPath(item, "product"),
+      getValueByPath(item, "primaryComponent.product"),
+      getValueByPath(item, "secondaryComponent.product"),
+    ].filter(isRecord);
+
+    if (products.length === 0) {
+      const productId = extractString(item, ["productId"]);
+      const name = extractString(item, ["name", "productName"]);
+
+      return productId || name
+        ? [{ productId: productId ?? null, name: name ?? null, amount: extractNumber(item, "amount") }]
+        : [];
+    }
+
+    return products.map((product) => ({
+      productId: extractString(product, ["id"]) ?? null,
+      name: extractString(product, ["name"]) ?? null,
+      amount: extractNumber(item, "amount"),
+    }));
+  });
+}
+
+function extractNumber(payload: unknown, path: string) {
+  const value = getValueByPath(payload, path);
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }

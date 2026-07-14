@@ -49,7 +49,11 @@ type IikoWebhookStatus = {
   lastWebhookReceivedAt: string | null;
   lastEventType: string | null;
   lastOrderId: string | null;
+  lastPosId: string | null;
   lastOrderStatus: string | null;
+  lastTerminalGroupId: string | null;
+  lastOrganizationId: string | null;
+  lastCorrelationId: string | null;
   lastHttpStatus: string | null;
   lastClientIp: string | null;
   lastUserAgent: string | null;
@@ -99,7 +103,11 @@ type IikoWebhookRequestLog = {
   error: string | null;
   eventType: string | null;
   orderId: string | null;
+  posId: string | null;
   orderStatus: string | null;
+  terminalGroupId: string | null;
+  organizationId: string | null;
+  correlationId: string | null;
   rawBody: string | null;
   parsedJson: unknown | null;
   headers: Record<string, string | boolean | null>;
@@ -162,7 +170,11 @@ export function ManagePanel() {
         lastWebhookReceivedAt: null,
         lastEventType: null,
         lastOrderId: null,
+        lastPosId: null,
         lastOrderStatus: null,
+        lastTerminalGroupId: null,
+        lastOrganizationId: null,
+        lastCorrelationId: null,
         lastHttpStatus: null,
         lastClientIp: null,
         lastUserAgent: null,
@@ -192,7 +204,11 @@ export function ManagePanel() {
         lastWebhookReceivedAt: current?.lastWebhookReceivedAt ?? null,
         lastEventType: current?.lastEventType ?? null,
         lastOrderId: current?.lastOrderId ?? null,
+        lastPosId: current?.lastPosId ?? null,
         lastOrderStatus: current?.lastOrderStatus ?? null,
+        lastTerminalGroupId: current?.lastTerminalGroupId ?? null,
+        lastOrganizationId: current?.lastOrganizationId ?? null,
+        lastCorrelationId: current?.lastCorrelationId ?? null,
         lastHttpStatus: current?.lastHttpStatus ?? null,
         lastClientIp: current?.lastClientIp ?? null,
         lastUserAgent: current?.lastUserAgent ?? null,
@@ -573,6 +589,14 @@ function IikoWebhookCard({
           />
           <Info label="lastEventType" value={status?.lastEventType ?? "Unknown"} />
           <Info label="lastOrderId" value={status?.lastOrderId ?? "Нет"} />
+          <Info
+            label="Последний terminal group"
+            value={status?.lastTerminalGroupId ?? "Нет"}
+          />
+          <Info
+            label="Последний статус заказа"
+            value={status?.lastOrderStatus ?? "Нет"}
+          />
         </div>
       </div>
 

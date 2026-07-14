@@ -42,7 +42,11 @@ function createMonitorStatus() {
     lastWebhookReceivedAt: state.lastEvent?.receivedAt ?? null,
     lastEventType: state.lastEvent?.eventType ?? null,
     lastOrderId: state.lastEvent?.orderId ?? null,
+    lastPosId: state.lastEvent?.posId ?? null,
     lastOrderStatus: state.lastEvent?.status ?? null,
+    lastTerminalGroupId: state.lastEvent?.terminalGroupId ?? null,
+    lastOrganizationId: state.lastEvent?.organizationId ?? null,
+    lastCorrelationId: state.lastEvent?.correlationId ?? null,
     lastHttpStatus: lastAttempt
       ? formatHttpStatus(lastAttempt.httpStatus, lastAttempt.httpStatusText)
       : null,
