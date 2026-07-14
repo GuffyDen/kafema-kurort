@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import type { ReactNode } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   createIikoSyncSummary,
   iikoReadOnlyRequests,
@@ -132,6 +132,7 @@ export function ManagePanel() {
     useState<IikoCheckDiagnostics | null>(null);
   const [iikoError, setIikoError] = useState("");
   const [webhookStatus, setWebhookStatus] = useState<IikoWebhookStatus | null>(null);
+  const [webhookCheckedAt, setWebhookCheckedAt] = useState<Date | null>(null);
   const [showEnvModeWarning, setShowEnvModeWarning] = useState(false);
   const [overlays, setOverlays] = useState<StorefrontOverlayState>(() =>
     getStoredOverlays(),
@@ -153,12 +154,15 @@ export function ManagePanel() {
     void refreshWebhookStatus();
   }, []);
 
-  async function refreshWebhookStatus() {
+  async function refreshWebhookStatus(): Promise<IikoWebhookStatus | null> {
     try {
       const response = await fetch("/api/iiko/webhook-monitor", { cache: "no-store" });
-      setWebhookStatus((await response.json()) as IikoWebhookStatus);
+      const nextStatus = (await response.json()) as IikoWebhookStatus;
+      setWebhookStatus(nextStatus);
+      setWebhookCheckedAt(new Date());
+      return nextStatus;
     } catch {
-      setWebhookStatus({
+      const errorStatus: IikoWebhookStatus = {
         status: "error",
         message: "Не удалось получить статус событий iiko",
         webhookUrl: "https://kafema-kurort.vercel.app/api/iiko/webhook",
@@ -182,7 +186,10 @@ export function ManagePanel() {
         lastPayload: null,
         lastMessage: null,
         requests: [],
-      });
+      };
+      setWebhookStatus(errorStatus);
+      setWebhookCheckedAt(new Date());
+      return null;
     }
   }
 
@@ -356,6 +363,7 @@ export function ManagePanel() {
               isCheckingIiko={isCheckingIiko}
               showEnvModeWarning={showEnvModeWarning}
               syncSummary={syncSummary}
+              webhookCheckedAt={webhookCheckedAt}
               webhookStatus={webhookStatus}
               onCheckIiko={checkIikoConnection}
               onClearWebhook={clearWebhookJournal}
@@ -402,6 +410,7 @@ function ConnectionsSection({
   isCheckingIiko,
   showEnvModeWarning,
   syncSummary,
+  webhookCheckedAt,
   webhookStatus,
   onCheckIiko,
   onClearWebhook,
@@ -419,10 +428,11 @@ function ConnectionsSection({
     terminalGroups: number;
     stopLists: number;
   };
+  webhookCheckedAt: Date | null;
   webhookStatus: IikoWebhookStatus | null;
   onCheckIiko: () => void;
   onClearWebhook: () => void;
-  onRefreshWebhook: () => void;
+  onRefreshWebhook: () => Promise<IikoWebhookStatus | null>;
 }) {
   return (
     <div className="space-y-5">
@@ -436,6 +446,7 @@ function ConnectionsSection({
           onCheck={onCheckIiko}
         />
         <IikoWebhookCard
+          lastCheckedAt={webhookCheckedAt}
           status={webhookStatus}
           onClear={onClearWebhook}
           onRefresh={onRefreshWebhook}
@@ -547,16 +558,22 @@ function IikoCloudApiCard({
 }
 
 function IikoWebhookCard({
+  lastCheckedAt,
   status,
   onClear,
   onRefresh,
 }: {
+  lastCheckedAt: Date | null;
   status: IikoWebhookStatus | null;
   onClear: () => void;
-  onRefresh: () => void;
+  onRefresh: () => Promise<IikoWebhookStatus | null>;
 }) {
   const [showPayload, setShowPayload] = useState(false);
   const [selectedRequest, setSelectedRequest] = useState<IikoWebhookRequestLog | null>(null);
+  const [refreshState, setRefreshState] = useState<
+    "idle" | "loading" | "updated" | "no-events" | "error"
+  >("idle");
+  const refreshResetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const webhookUrl =
     status?.webhookUrl ?? "https://kafema-kurort.vercel.app/api/iiko/webhook";
   const totalRequests = status?.totalRequests ?? status?.totalReceived ?? 0;
@@ -567,6 +584,47 @@ function IikoWebhookCard({
   const payloadForViewer = status?.lastPayload ?? status?.lastMessage ?? null;
   const requestJournal = status?.requests ?? [];
   const lastStatus = status?.lastHttpStatus ?? "Нет";
+  const refreshLabel =
+    refreshState === "loading"
+      ? "Обновление..."
+      : refreshState === "updated"
+        ? "Монитор обновлен"
+        : refreshState === "no-events"
+          ? "Новых событий нет"
+          : refreshState === "error"
+            ? "Не удалось обновить"
+            : "Обновить монитор";
+
+  useEffect(() => {
+    return () => {
+      if (refreshResetTimer.current) clearTimeout(refreshResetTimer.current);
+    };
+  }, []);
+
+  async function handleRefresh() {
+    if (refreshState === "loading") return;
+
+    if (refreshResetTimer.current) clearTimeout(refreshResetTimer.current);
+
+    const previousRequestsCount = totalRequests;
+    setRefreshState("loading");
+
+    const nextStatus = await onRefresh();
+
+    if (!nextStatus) {
+      setRefreshState("error");
+    } else {
+      const nextRequestsCount = nextStatus.totalRequests ?? nextStatus.totalReceived ?? 0;
+      setRefreshState(
+        nextRequestsCount > previousRequestsCount ? "updated" : "no-events",
+      );
+    }
+
+    refreshResetTimer.current = setTimeout(() => {
+      setRefreshState("idle");
+      refreshResetTimer.current = null;
+    }, 2400);
+  }
 
   return (
     <Card>
@@ -608,8 +666,10 @@ function IikoWebhookCard({
 
       {!hasRequests ? (
         <p className="mt-5 rounded-3xl bg-[#F7F7F7] p-4 text-sm font-bold leading-6 text-[#777777]">
-          Webhook еще ни разу не вызывался. После первого обращения журнал появится
-          автоматически.
+          Ожидаем первое событие от iiko.
+          <span className="mt-2 block">
+            Как только в iiko будет создан заказ, он автоматически появится здесь.
+          </span>
         </p>
       ) : totalReceived === 0 ? (
         <p className="mt-5 rounded-3xl bg-[#FFF4D7] p-4 text-sm font-bold leading-6 text-[#8A6500]">
@@ -618,9 +678,29 @@ function IikoWebhookCard({
         </p>
       ) : null}
 
-      <div className="mt-5 flex flex-wrap gap-3">
-        <PrimaryButton onClick={onRefresh}>Обновить монитор</PrimaryButton>
-        {hasRequests ? <SecondaryButton onClick={onClear}>Очистить журнал</SecondaryButton> : null}
+      <div className="mt-5">
+        <div className="flex flex-wrap gap-3">
+          <PrimaryButton
+            disabled={refreshState === "loading"}
+            onClick={() => void handleRefresh()}
+          >
+            <span className="inline-flex items-center gap-2" aria-live="polite">
+              {refreshState === "loading" ? (
+                <span
+                  aria-hidden="true"
+                  className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white"
+                />
+              ) : null}
+              {refreshLabel}
+            </span>
+          </PrimaryButton>
+          {hasRequests ? (
+            <SecondaryButton onClick={onClear}>Очистить журнал</SecondaryButton>
+          ) : null}
+        </div>
+        <p className="mt-2 text-xs font-bold text-[#777777]">
+          Последняя проверка: {formatWebhookCheckTime(lastCheckedAt)}
+        </p>
       </div>
 
       <details className="mt-5 rounded-3xl border border-[#E9E1D7] bg-[#FFFDF8] p-4">
@@ -881,6 +961,16 @@ function formatWebhookDate(value?: string | null) {
     minute: "2-digit",
     second: "2-digit",
   }).format(date);
+}
+
+function formatWebhookCheckTime(value: Date | null) {
+  if (!value) return "—";
+
+  return new Intl.DateTimeFormat("ru-RU", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).format(value);
 }
 
 function StorefrontSection({
