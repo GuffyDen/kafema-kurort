@@ -19,7 +19,7 @@ type RequestError = {
   correlationId?: string | null;
 };
 
-type StorefrontViewMode = "categories" | "products" | "modifiers";
+type StorefrontViewMode = "all" | "categories" | "products" | "modifiers";
 
 type ModifierEntry = {
   itemId: string;
@@ -181,10 +181,12 @@ export function StorefrontSection() {
   }
 
   function selectViewMode(nextMode: StorefrontViewMode) {
-    setViewMode(nextMode);
+    const resolvedMode = viewMode === nextMode ? "all" : nextMode;
+
+    setViewMode(resolvedMode);
     setSearchQuery("");
     setVisibleLimit(listPageSize);
-    storeViewMode(nextMode);
+    storeViewMode(resolvedMode);
   }
 
   function updateSearchQuery(value: string) {
@@ -279,17 +281,39 @@ export function StorefrontSection() {
           />
         </div>
 
-        <label className="mt-3 block">
-          <span className="sr-only">{getSearchLabel(viewMode)}</span>
-          <input
-            className={`${inputClass} bg-white`}
-            onChange={(event) => updateSearchQuery(event.target.value)}
-            placeholder={getSearchPlaceholder(viewMode)}
-            type="search"
-            value={searchQuery}
-          />
-        </label>
+        {viewMode !== "all" ? (
+          <label className="mt-3 block">
+            <span className="sr-only">{getSearchLabel(viewMode)}</span>
+            <input
+              className={`${inputClass} bg-white`}
+              onChange={(event) => updateSearchQuery(event.target.value)}
+              placeholder={getSearchPlaceholder(viewMode)}
+              type="search"
+              value={searchQuery}
+            />
+          </label>
+        ) : null}
       </div>
+
+      {viewMode === "all" ? (
+        storefront.categories.length === 0 ? (
+          <StorefrontState
+            description="iiko не вернула категории и товары."
+            title="Внешнее меню пусто"
+          />
+        ) : (
+          storefront.categories.map((category) => (
+            <CategoryEditor
+              category={category}
+              key={`${category.source.id}:${JSON.stringify(category.overrides)}`}
+              writable={storefront.persistence.writable}
+              onPatch={patchCategory}
+              onPatchProduct={patchProduct}
+              onResetProduct={resetProduct}
+            />
+          ))
+        )
+      ) : null}
 
       {viewMode === "categories" ? (
         <StorefrontList
@@ -371,6 +395,8 @@ function CategoryEditor({
   category,
   writable,
   onPatch,
+  onPatchProduct,
+  onResetProduct,
 }: {
   category: StorefrontCategory;
   writable: boolean;
@@ -378,6 +404,11 @@ function CategoryEditor({
     categoryId: string,
     patch: Partial<Record<keyof StorefrontCategoryOverride, unknown>>,
   ) => Promise<void>;
+  onPatchProduct?: (
+    itemId: string,
+    patch: Partial<Record<keyof StorefrontProductOverride, unknown>>,
+  ) => Promise<void>;
+  onResetProduct?: (itemId: string) => Promise<void>;
 }) {
   const [displayName, setDisplayName] = useState(
     category.overrides.displayName ?? "",
@@ -478,6 +509,20 @@ function CategoryEditor({
         </button>
       </div>
       {message ? <StatusMessage message={message} /> : null}
+
+      {onPatchProduct && onResetProduct ? (
+        <div className="mt-5 grid gap-4">
+          {category.products.map((product) => (
+            <ProductEditor
+              key={`${product.source.itemId}:${JSON.stringify(product.overrides)}`}
+              product={product}
+              writable={writable}
+              onPatch={onPatchProduct}
+              onReset={onResetProduct}
+            />
+          ))}
+        </div>
+      ) : null}
     </details>
   );
 }
@@ -490,7 +535,7 @@ function ProductEditor({
   onReset,
 }: {
   product: StorefrontProduct;
-  categoryLabel: string;
+  categoryLabel?: string;
   writable: boolean;
   onPatch: (
     itemId: string,
@@ -567,9 +612,11 @@ function ProductEditor({
 
   return (
     <article className="rounded-[24px] border border-[#E9E1D7] bg-white p-4 shadow-[0_12px_32px_rgba(36,24,16,0.06)] [contain-intrinsic-size:760px] [content-visibility:auto]">
-      <p className="mb-4 text-xs font-black uppercase tracking-[0.08em] text-[#C46F28]">
-        {categoryLabel}
-      </p>
+      {categoryLabel ? (
+        <p className="mb-4 text-xs font-black uppercase tracking-[0.08em] text-[#C46F28]">
+          {categoryLabel}
+        </p>
+      ) : null}
       <div className="grid gap-5 xl:grid-cols-[180px_1fr]">
         <div>
           <div className="aspect-square overflow-hidden rounded-2xl bg-[#F7F7F7]">
@@ -1261,15 +1308,18 @@ function createModifierEntries(
 }
 
 function getStoredViewMode(): StorefrontViewMode {
-  if (typeof window === "undefined") return "categories";
+  if (typeof window === "undefined") return "all";
 
   try {
     const stored = localStorage.getItem(viewModeStorageKey);
-    return stored === "products" || stored === "modifiers"
+    return stored === "categories" ||
+      stored === "products" ||
+      stored === "modifiers" ||
+      stored === "all"
       ? stored
-      : "categories";
+      : "all";
   } catch {
-    return "categories";
+    return "all";
   }
 }
 
