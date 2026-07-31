@@ -15,14 +15,18 @@ let cachedCheck:
   | null = null;
 let inFlightCheck: Promise<IikoReadOnlyCheckResult> | null = null;
 
-export async function GET() {
-  const { cache, check } = await getReadOnlyCheck();
+export async function GET(request: Request) {
+  const { cache, check } = await getReadOnlyCheck({
+    refresh: shouldRefresh(request),
+  });
 
   return Response.json({ ...serializeIikoCheck(check), cache }, { status: 200 });
 }
 
-export async function POST() {
-  const { cache, check } = await getReadOnlyCheck();
+export async function POST(request: Request) {
+  const { cache, check } = await getReadOnlyCheck({
+    refresh: shouldRefresh(request),
+  });
   const diagnostics = { ...serializeIikoCheck(check), cache };
 
   if (!check.ok || !check.result) {
@@ -44,13 +48,26 @@ export async function POST() {
   });
 }
 
-async function getReadOnlyCheck() {
+async function getReadOnlyCheck({ refresh = false }: { refresh?: boolean } = {}) {
   const now = Date.now();
 
-  if (cachedCheck && now - cachedCheck.checkedAt < CHECK_CACHE_TTL_MS) {
+  if (!refresh && cachedCheck && now - cachedCheck.checkedAt < CHECK_CACHE_TTL_MS) {
     return {
       check: cachedCheck.check,
       cache: createCacheInfo("fresh", cachedCheck.checkedAt),
+    };
+  }
+
+  if (refresh) {
+    const check = await checkIikoConnectionReadOnly();
+    cachedCheck = {
+      checkedAt: Date.now(),
+      check,
+    };
+
+    return {
+      check,
+      cache: createCacheInfo("refresh", cachedCheck.checkedAt),
     };
   }
 
@@ -86,7 +103,7 @@ async function getReadOnlyCheck() {
 }
 
 function createCacheInfo(
-  status: "fresh" | "updated" | "stale-after-rate-limit",
+  status: "fresh" | "updated" | "stale-after-rate-limit" | "refresh",
   checkedAt: number,
 ) {
   return {
@@ -95,6 +112,10 @@ function createCacheInfo(
     ageMs: Math.max(0, Date.now() - checkedAt),
     ttlMs: CHECK_CACHE_TTL_MS,
   };
+}
+
+function shouldRefresh(request: Request) {
+  return new URL(request.url).searchParams.get("refresh") === "1";
 }
 
 function serializeIikoCheck(check: IikoReadOnlyCheckResult) {
@@ -112,11 +133,18 @@ function serializeIikoCheck(check: IikoReadOnlyCheckResult) {
     terminalGroupId: check.terminalGroupId,
     selectedTerminalGroupId: check.selectedTerminalGroupId,
     selectedTerminalGroupName: check.selectedTerminalGroupName,
+    externalMenuId: check.externalMenuId,
+    externalMenuName: check.externalMenuName,
+    priceCategoriesCount: check.priceCategoriesCount,
+    firstProducts: check.firstProducts,
     availableTerminalGroups: check.availableTerminalGroups,
     menuReceived: check.menuReceived,
     productsCount: check.productsCount,
     categoriesCount: check.categoriesCount,
     modifiersCount: check.modifiersCount,
+    nomenclature: check.nomenclature,
+    nomenclatureByOrganization: check.nomenclatureByOrganization,
+    externalMenu: check.externalMenu,
     counts: check.counts,
     endpoints: check.endpoints.map((endpoint) => ({
       ...endpoint,

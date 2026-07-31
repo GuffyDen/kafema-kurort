@@ -23,6 +23,8 @@ export type IikoEndpointCheck = {
   status: number | null;
   ok: boolean;
   response: unknown;
+  durationMs?: number;
+  correlationId?: string | null;
   error?: string;
 };
 
@@ -50,11 +52,18 @@ export type IikoReadOnlyCheckResult = {
   terminalGroupId: string | null;
   selectedTerminalGroupId: string | null;
   selectedTerminalGroupName: string | null;
+  externalMenuId: string | null;
+  externalMenuName: string | null;
+  priceCategoriesCount: number;
+  firstProducts: IikoExternalMenuProductDiagnostic[];
   availableTerminalGroups: IikoTerminalGroupDiagnostic[];
   menuReceived: boolean;
   productsCount: number;
   categoriesCount: number;
   modifiersCount: number;
+  nomenclature: IikoNomenclatureDiagnostic | null;
+  nomenclatureByOrganization: IikoOrganizationNomenclatureDiagnostic[];
+  externalMenu: IikoExternalMenuDiagnostic | null;
   counts: IikoSyncSummary;
   endpoints: IikoEndpointCheck[];
   rawErrors: IikoCheckError[];
@@ -62,12 +71,58 @@ export type IikoReadOnlyCheckResult = {
   result?: IikoConnectionResult;
 };
 
+export type IikoNomenclatureDiagnostic = {
+  organizationId: string;
+  organizationName: string | null;
+  revision: number | string | null;
+  groupsCount: number;
+  productCategoriesCount: number;
+  productsCount: number;
+  modifiersCount: number;
+  sizesCount: number;
+  durationMs: number;
+};
+
+export type IikoOrganizationNomenclatureDiagnostic = IikoNomenclatureDiagnostic & {
+  status: number | null;
+  ok: boolean;
+  error: string | null;
+};
+
+export type IikoExternalMenuDiagnostic = {
+  status: number | null;
+  ok: boolean;
+  organizationId: string;
+  externalMenusCount: number;
+  menus: Array<{ id: string; name: string | null }>;
+  menuIds: string[];
+  selectedMenuId: string | null;
+  selectedMenuName: string | null;
+  priceCategoriesCount: number;
+  byIdStatus: number | null;
+  byIdOk: boolean | null;
+  byIdMenuId: string | null;
+  byIdProductsCount: number | null;
+  byIdCategoriesCount: number | null;
+  byIdModifiersCount: number | null;
+  firstProducts: IikoExternalMenuProductDiagnostic[];
+  correlationId: string | null;
+  error: string | null;
+};
+
+export type IikoExternalMenuProductDiagnostic = {
+  id: string | null;
+  name: string;
+  price: number | null;
+};
+
 type IikoCheckError = {
-    step: string;
-    endpoint?: string;
-    status?: number;
-    message: string;
-    response?: unknown;
+  step: string;
+  endpoint?: string;
+  status?: number;
+  correlationId?: string | null;
+  message: string;
+  response?: unknown;
 };
 
 type IikoApiOrganization = {
@@ -116,6 +171,21 @@ type IikoApiNomenclature = {
   products?: IikoApiProduct[];
   groups?: IikoApiGroup[];
   productCategories?: unknown[];
+  sizes?: unknown[];
+  revision?: number | string | null;
+};
+
+type IikoExternalMenuListResponse = {
+  externalMenus?: Array<{
+    id?: string | number;
+    externalMenuId?: string | number;
+    menuId?: string | number;
+    name?: string;
+  }>;
+  priceCategories?: Array<{
+    id?: string;
+    name?: string;
+  }>;
 };
 
 type IikoApiStopLists = {
@@ -243,14 +313,53 @@ export async function checkIikoConnectionReadOnly(
       );
     }
 
-    const menu = await getMenu(config, token, selectedOrganization.id, endpoints);
-    const summary = createSummary(menu, terminalGroups.length, null);
+    const externalMenu = await getExternalMenuDiagnostic(
+      config,
+      token,
+      selectedOrganization.id,
+      endpoints,
+    );
+    const externalMenuError = getExternalMenuError(externalMenu);
+    let nomenclature: IikoNomenclatureDiagnostic | null = null;
+    let nomenclatureByOrganization: IikoOrganizationNomenclatureDiagnostic[] = [];
+
+    if (externalMenuError) {
+      errors.push(externalMenuError);
+
+      // Nomenclature remains available only as an internal fallback diagnostic.
+      try {
+        const fallbackMenu = await getMenu(
+          config,
+          token,
+          selectedOrganization.id,
+          endpoints,
+        );
+        nomenclature = createNomenclatureDiagnostic(
+          fallbackMenu,
+          selectedOrganization.id,
+          selectedOrganization.name,
+          getLastEndpointDuration(endpoints, "/api/1/nomenclature"),
+        );
+      } catch (fallbackError) {
+        errors.push(createCheckError(fallbackError));
+      }
+
+      nomenclatureByOrganization = await getNomenclatureByOrganization(
+        config,
+        token,
+        organizations,
+        endpoints,
+      );
+    }
+
+    const summary = createExternalMenuSummary(externalMenu, terminalGroups.length);
+    const menuIsReady = externalMenu.byIdOk === true && summary.products > 0;
     const result: IikoConnectionResult = {
       status: "connected",
       mode: "real",
       authVersion: "v2",
       tokenReceived: Boolean(token),
-      menuReceived: Boolean(menu),
+      menuReceived: menuIsReady,
       organization: {
         ...selectedOrganization,
         terminalGroupId: terminalGroup.id,
@@ -261,13 +370,13 @@ export async function checkIikoConnectionReadOnly(
           (group) => group.organizationId === organization.id,
         )?.id,
       })),
-      version: "Cloud API v2 auth + v1 nomenclature",
+      version: "Cloud API v2 auth + External Menu v2",
       lastSyncAt: formatSyncTime(),
       summary,
     };
 
     return {
-      ok: true,
+      ok: menuIsReady,
       authVersion: "v2",
       tokenReceived: true,
       authHttpStatus: getEndpointStatus(endpoints, "/api/v2/access_token"),
@@ -280,16 +389,23 @@ export async function checkIikoConnectionReadOnly(
       terminalGroupId: config.terminalGroupId,
       selectedTerminalGroupId: terminalGroup.id ?? null,
       selectedTerminalGroupName: terminalGroup.name ?? null,
+      externalMenuId: externalMenu.selectedMenuId,
+      externalMenuName: externalMenu.selectedMenuName,
+      priceCategoriesCount: externalMenu.priceCategoriesCount,
+      firstProducts: externalMenu.firstProducts,
       availableTerminalGroups,
-      menuReceived: true,
+      menuReceived: externalMenu.byIdOk === true,
       productsCount: summary.products,
       categoriesCount: summary.categories,
       modifiersCount: summary.modifiers,
+      nomenclature,
+      nomenclatureByOrganization,
+      externalMenu,
       counts: summary,
       endpoints,
       errors,
       rawErrors: errors,
-      result,
+      ...(menuIsReady ? { result } : {}),
     };
   } catch (error) {
     errors.push(createCheckError(error));
@@ -433,10 +549,213 @@ async function getMenu(
   );
 }
 
+async function getNomenclatureByOrganization(
+  config: IikoClientConfig,
+  token: string,
+  organizations: IikoOrganization[],
+  endpoints?: IikoEndpointCheck[],
+): Promise<IikoOrganizationNomenclatureDiagnostic[]> {
+  const diagnostics: IikoOrganizationNomenclatureDiagnostic[] = [];
+
+  for (const organization of organizations) {
+    try {
+      const menu = await getMenu(config, token, organization.id, endpoints);
+
+      diagnostics.push({
+        ...createNomenclatureDiagnostic(
+          menu,
+          organization.id,
+          organization.name,
+          getLastEndpointDuration(endpoints, "/api/1/nomenclature"),
+        ),
+        status: getLastEndpointStatus(endpoints, "/api/1/nomenclature"),
+        ok: true,
+        error: null,
+      });
+    } catch (error) {
+      diagnostics.push({
+        organizationId: organization.id,
+        organizationName: organization.name,
+        revision: null,
+        groupsCount: 0,
+        productCategoriesCount: 0,
+        productsCount: 0,
+        modifiersCount: 0,
+        sizesCount: 0,
+        durationMs: getLastEndpointDuration(endpoints, "/api/1/nomenclature"),
+        status:
+          error instanceof IikoHttpError
+            ? error.status
+            : getLastEndpointStatus(endpoints, "/api/1/nomenclature"),
+        ok: false,
+        error: sanitizeSensitiveValue(
+          error instanceof Error ? error.message : "Не удалось получить nomenclature",
+        ),
+      });
+    }
+  }
+
+  return diagnostics;
+}
+
+async function getExternalMenuDiagnostic(
+  config: IikoClientConfig,
+  token: string,
+  organizationId: string,
+  endpoints?: IikoEndpointCheck[],
+): Promise<IikoExternalMenuDiagnostic> {
+  try {
+    const menuList = await requestIiko<IikoExternalMenuListResponse>(
+      config,
+      "/api/2/menu",
+      undefined,
+      token,
+      endpoints,
+    );
+    const externalMenus = Array.isArray(menuList.externalMenus)
+      ? menuList.externalMenus
+      : [];
+    const menus = externalMenus
+      .map((menu) => {
+        const id = getStringValue(menu.id, menu.externalMenuId, menu.menuId);
+
+        return id
+          ? {
+              id,
+              name: getStringValue(menu.name),
+            }
+          : null;
+      })
+      .filter(
+        (menu): menu is { id: string; name: string | null } => menu !== null,
+      );
+    const menuIds = menus.map((menu) => menu.id);
+    const selectedMenu = menus[0] ?? null;
+    const priceCategories = Array.isArray(menuList.priceCategories)
+      ? menuList.priceCategories
+      : [];
+    const usablePriceCategoryId = priceCategories
+      .map((category) => getStringValue(category.id))
+      .find((id) => id && id !== "00000000-0000-0000-0000-000000000000");
+    let byIdStatus: number | null = null;
+    let byIdOk: boolean | null = null;
+    let byIdProductsCount: number | null = null;
+    let byIdCategoriesCount: number | null = null;
+    let byIdModifiersCount: number | null = null;
+    let firstProducts: IikoExternalMenuProductDiagnostic[] = [];
+    let errorMessage: string | null = null;
+    let correlationId = getLastEndpointCorrelationId(endpoints, "/api/2/menu");
+
+    if (selectedMenu) {
+      try {
+        const requestBody: Record<string, unknown> = {
+          externalMenuId: selectedMenu.id,
+          organizationIds: [organizationId],
+          language: "ru",
+          version: 2,
+        };
+
+        if (usablePriceCategoryId) {
+          requestBody.priceCategoryId = usablePriceCategoryId;
+        }
+
+        const menuById = await requestIiko<Record<string, unknown>>(
+          config,
+          "/api/2/menu/by_id",
+          requestBody,
+          token,
+          endpoints,
+        );
+        const menuSummary = summarizeExternalMenuContent(
+          menuById,
+          organizationId,
+        );
+
+        byIdStatus = getLastEndpointStatus(endpoints, "/api/2/menu/by_id");
+        byIdOk = true;
+        byIdProductsCount = menuSummary.productsCount;
+        byIdCategoriesCount = menuSummary.categoriesCount;
+        byIdModifiersCount = menuSummary.modifiersCount;
+        firstProducts = menuSummary.firstProducts;
+        correlationId =
+          getLastEndpointCorrelationId(endpoints, "/api/2/menu/by_id") ??
+          correlationId;
+      } catch (error) {
+        byIdStatus =
+          error instanceof IikoHttpError
+            ? error.status
+            : getLastEndpointStatus(endpoints, "/api/2/menu/by_id");
+        byIdOk = false;
+        errorMessage = sanitizeSensitiveValue(
+          error instanceof Error
+            ? error.message
+            : "Не удалось получить содержимое внешнего меню.",
+        );
+        correlationId =
+          error instanceof IikoHttpError
+            ? error.correlationId
+            : getLastEndpointCorrelationId(endpoints, "/api/2/menu/by_id");
+      }
+    } else {
+      errorMessage = "Внешнее меню не найдено.";
+    }
+
+    return {
+      status: getLastEndpointStatus(endpoints, "/api/2/menu"),
+      ok: Boolean(selectedMenu && byIdOk),
+      organizationId,
+      externalMenusCount: externalMenus.length,
+      menus,
+      menuIds,
+      selectedMenuId: selectedMenu?.id ?? null,
+      selectedMenuName: selectedMenu?.name ?? null,
+      priceCategoriesCount: priceCategories.length,
+      byIdStatus,
+      byIdOk,
+      byIdMenuId: selectedMenu?.id ?? null,
+      byIdProductsCount,
+      byIdCategoriesCount,
+      byIdModifiersCount,
+      firstProducts,
+      correlationId,
+      error: errorMessage,
+    };
+  } catch (error) {
+    return {
+      status:
+        error instanceof IikoHttpError
+          ? error.status
+          : getLastEndpointStatus(endpoints, "/api/2/menu"),
+      ok: false,
+      organizationId,
+      externalMenusCount: 0,
+      menus: [],
+      menuIds: [],
+      selectedMenuId: null,
+      selectedMenuName: null,
+      priceCategoriesCount: 0,
+      byIdStatus: null,
+      byIdOk: null,
+      byIdMenuId: null,
+      byIdProductsCount: null,
+      byIdCategoriesCount: null,
+      byIdModifiersCount: null,
+      firstProducts: [],
+      correlationId:
+        error instanceof IikoHttpError
+          ? error.correlationId
+          : getLastEndpointCorrelationId(endpoints, "/api/2/menu"),
+      error: sanitizeSensitiveValue(
+        error instanceof Error ? error.message : "Не удалось получить external menu",
+      ),
+    };
+  }
+}
+
 async function requestIiko<TResponse>(
   config: IikoClientConfig,
   endpoint: string,
-  body: Record<string, unknown>,
+  body: Record<string, unknown> | undefined,
   token?: string,
   endpoints?: IikoEndpointCheck[],
 ) {
@@ -444,21 +763,28 @@ async function requestIiko<TResponse>(
   const metadata = iikoReadOnlyRequests.find(
     (request) => request.endpoint === endpoint,
   );
+  const startedAt = Date.now();
 
   const response = await fetch(`${config.apiRootUrl}${endpoint}`, {
     method: "POST",
     headers: {
-      "Content-Type": "application/json",
+      Accept: "application/json",
+      ...(body ? { "Content-Type": "application/json" } : {}),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
-    body: JSON.stringify(body),
+    ...(body ? { body: JSON.stringify(body) } : {}),
     cache: "no-store",
   });
   const rawBody = await response.text();
+  const durationMs = Date.now() - startedAt;
   const parsedBody = parseJson(rawBody);
-  const responseSummary = summarizeIikoResponse(endpoint, parsedBody ?? rawBody);
+  const correlationId = getResponseCorrelationId(response, parsedBody);
+  const responseSummary = withCorrelationId(
+    summarizeIikoResponse(endpoint, parsedBody ?? rawBody),
+    correlationId,
+  );
   const errorMessage = sanitizeSensitiveValue(
-    getIikoErrorMessage(parsedBody, rawBody),
+    getIikoErrorMessage(parsedBody, rawBody, response.status),
   );
 
   endpoints?.push({
@@ -468,6 +794,8 @@ async function requestIiko<TResponse>(
     status: response.status,
     ok: response.ok,
     response: responseSummary,
+    durationMs,
+    correlationId,
     ...(response.ok ? {} : { error: errorMessage }),
   });
 
@@ -477,6 +805,7 @@ async function requestIiko<TResponse>(
       endpoint,
       errorMessage,
       responseSummary,
+      correlationId,
     );
   }
 
@@ -489,6 +818,7 @@ class IikoHttpError extends Error {
     readonly endpoint: string,
     message: string,
     readonly response: unknown,
+    readonly correlationId: string | null,
   ) {
     super(message || `iiko вернула ошибку ${status} для ${endpoint}`);
   }
@@ -512,14 +842,7 @@ function createSummary(
   const products = countNomenclatureProducts(menu);
   const categories =
     menu?.productCategories?.length ?? countGroups(menu?.groups ?? []);
-  const modifiers =
-    collectNomenclatureProducts(menu).reduce(
-      (sum, product) =>
-        sum +
-        (product.modifiers?.length ?? 0) +
-        (product.groupModifiers?.length ?? 0),
-      0,
-    ) ?? 0;
+  const modifiers = countNomenclatureModifiers(menu);
 
   return {
     products,
@@ -530,6 +853,158 @@ function createSummary(
       (stopLists?.terminalGroupStopLists?.length ?? 0) +
       (stopLists?.stopLists?.length ?? 0),
   };
+}
+
+function createExternalMenuSummary(
+  menu: IikoExternalMenuDiagnostic,
+  terminalGroups: number,
+): IikoSyncSummary {
+  return {
+    products: menu.byIdProductsCount ?? 0,
+    categories: menu.byIdCategoriesCount ?? 0,
+    modifiers: menu.byIdModifiersCount ?? 0,
+    terminalGroups,
+    stopLists: 0,
+  };
+}
+
+function getExternalMenuError(
+  menu: IikoExternalMenuDiagnostic,
+): IikoCheckError | null {
+  if (menu.externalMenusCount === 0) {
+    return {
+      step: "external_menu",
+      endpoint: "/api/2/menu",
+      status: menu.status ?? undefined,
+      correlationId: menu.correlationId,
+      message: "Внешнее меню не найдено.",
+    };
+  }
+
+  if (menu.byIdOk !== true) {
+    return {
+      step: "external_menu_by_id",
+      endpoint: "/api/2/menu/by_id",
+      status: menu.byIdStatus ?? undefined,
+      correlationId: menu.correlationId,
+      message: menu.error ?? "Не удалось получить содержимое внешнего меню.",
+    };
+  }
+
+  if ((menu.byIdProductsCount ?? 0) === 0) {
+    return {
+      step: "external_menu_products",
+      endpoint: "/api/2/menu/by_id",
+      status: menu.byIdStatus ?? undefined,
+      correlationId: menu.correlationId,
+      message: "Внешнее меню получено, но товары в нем отсутствуют.",
+    };
+  }
+
+  return null;
+}
+
+function summarizeExternalMenuContent(
+  menu: Record<string, unknown>,
+  organizationId: string,
+) {
+  const categories = Array.isArray(menu.itemCategories)
+    ? menu.itemCategories.filter(isRecord)
+    : [];
+  const products = categories.flatMap((category) =>
+    Array.isArray(category.items) ? category.items.filter(isRecord) : [],
+  );
+  const modifiersCount = products.reduce((productSum, product) => {
+    const sizes = Array.isArray(product.itemSizes)
+      ? product.itemSizes.filter(isRecord)
+      : [];
+
+    return (
+      productSum +
+      sizes.reduce((sizeSum, size) => {
+        const groups = Array.isArray(size.itemModifierGroups)
+          ? size.itemModifierGroups.filter(isRecord)
+          : [];
+
+        return (
+          sizeSum +
+          groups.reduce(
+            (groupSum, group) =>
+              groupSum + (Array.isArray(group.items) ? group.items.length : 0),
+            0,
+          )
+        );
+      }, 0)
+    );
+  }, 0);
+  const firstProducts = products.slice(0, 5).map((product) => ({
+    id: getStringValue(product.itemId, product.id),
+    name: getStringValue(product.name) ?? "Без названия",
+    price: getExternalMenuProductPrice(product, organizationId),
+  }));
+
+  return {
+    categoriesCount: categories.length,
+    productsCount: products.length,
+    modifiersCount,
+    firstProducts,
+  };
+}
+
+function getExternalMenuProductPrice(
+  product: Record<string, unknown>,
+  organizationId: string,
+) {
+  const sizes = Array.isArray(product.itemSizes)
+    ? product.itemSizes.filter(isRecord)
+    : [];
+
+  for (const size of sizes) {
+    const prices = Array.isArray(size.prices)
+      ? size.prices.filter(isRecord)
+      : [];
+    const organizationPrice = prices.find(
+      (price) => getStringValue(price.organizationId) === organizationId,
+    );
+    const selectedPrice = organizationPrice ?? prices[0];
+
+    if (typeof selectedPrice?.price === "number") {
+      return selectedPrice.price;
+    }
+  }
+
+  return null;
+}
+
+function createNomenclatureDiagnostic(
+  menu: IikoApiNomenclature,
+  organizationId: string,
+  organizationName: string | null,
+  durationMs: number,
+): IikoNomenclatureDiagnostic {
+  return {
+    organizationId,
+    organizationName,
+    revision: menu.revision ?? null,
+    groupsCount: Array.isArray(menu.groups) ? menu.groups.length : 0,
+    productCategoriesCount: Array.isArray(menu.productCategories)
+      ? menu.productCategories.length
+      : 0,
+    productsCount: countNomenclatureProducts(menu),
+    modifiersCount: countNomenclatureModifiers(menu),
+    sizesCount: Array.isArray(menu.sizes) ? menu.sizes.length : 0,
+    durationMs,
+  };
+}
+
+function countNomenclatureModifiers(menu: IikoApiNomenclature | null) {
+  return collectNomenclatureProducts(menu).reduce(
+    (sum, product) =>
+      sum +
+      (product.modifiers?.length ?? 0) +
+      (product.groupModifiers?.length ?? 0),
+    0,
+  );
 }
 
 function countGroups(groups: IikoApiGroup[]): number {
@@ -567,6 +1042,49 @@ function isNomenclatureGroup(
   item: IikoApiGroup | IikoApiProduct,
 ): item is IikoApiGroup {
   return Array.isArray((item as IikoApiGroup).items);
+}
+
+function getLastEndpointStatus(
+  endpoints: IikoEndpointCheck[] | undefined,
+  endpoint: string,
+) {
+  const matched = endpoints?.filter((item) => item.endpoint === endpoint) ?? [];
+
+  return matched.at(-1)?.status ?? null;
+}
+
+function getLastEndpointDuration(
+  endpoints: IikoEndpointCheck[] | undefined,
+  endpoint: string,
+) {
+  const matched = endpoints?.filter((item) => item.endpoint === endpoint) ?? [];
+
+  return matched.at(-1)?.durationMs ?? 0;
+}
+
+function getLastEndpointCorrelationId(
+  endpoints: IikoEndpointCheck[] | undefined,
+  endpoint: string,
+) {
+  const matched = endpoints?.filter((item) => item.endpoint === endpoint) ?? [];
+
+  return matched.at(-1)?.correlationId ?? null;
+}
+
+function countDeepArraysByKey(value: unknown, keys: string[]): number {
+  if (Array.isArray(value)) {
+    return value.reduce((sum, item) => sum + countDeepArraysByKey(item, keys), 0);
+  }
+
+  if (!isRecord(value)) {
+    return 0;
+  }
+
+  return Object.entries(value).reduce((sum, [key, item]) => {
+    const ownCount = keys.includes(key) && Array.isArray(item) ? item.length : 0;
+
+    return sum + ownCount + countDeepArraysByKey(item, keys);
+  }, 0);
 }
 
 function trimTrailingSlash(value: string) {
@@ -636,11 +1154,18 @@ function createBaseCheckResult(
     terminalGroupId: config.terminalGroupId || null,
     selectedTerminalGroupId: null,
     selectedTerminalGroupName: null,
+    externalMenuId: null,
+    externalMenuName: null,
+    priceCategoriesCount: 0,
+    firstProducts: [],
     availableTerminalGroups: [],
     menuReceived: false,
     productsCount: 0,
     categoriesCount: 0,
     modifiersCount: 0,
+    nomenclature: null,
+    nomenclatureByOrganization: [],
+    externalMenu: null,
     counts,
     endpoints,
     errors,
@@ -693,6 +1218,7 @@ function createCheckError(error: unknown) {
       step: error.endpoint,
       endpoint: error.endpoint,
       status: error.status,
+      correlationId: error.correlationId,
       message: error.message,
       response: sanitizeSensitive(error.response),
     };
@@ -716,7 +1242,11 @@ function parseJson(value: string) {
   }
 }
 
-function getIikoErrorMessage(parsedBody: unknown, rawBody: string) {
+function getIikoErrorMessage(
+  parsedBody: unknown,
+  rawBody: string,
+  status: number,
+) {
   if (isRecord(parsedBody)) {
     const message =
       parsedBody.errorDescription ??
@@ -729,7 +1259,35 @@ function getIikoErrorMessage(parsedBody: unknown, rawBody: string) {
     }
   }
 
+  if (/^\s*<!doctype html/i.test(rawBody)) {
+    return `iiko вернула HTTP ${status}`;
+  }
+
   return rawBody || "iiko вернула ошибку";
+}
+
+function getResponseCorrelationId(response: Response, parsedBody: unknown) {
+  const bodyCorrelationId = isRecord(parsedBody)
+    ? getStringValue(parsedBody.correlationId)
+    : null;
+
+  return (
+    bodyCorrelationId ??
+    response.headers.get("trncorrelationid") ??
+    response.headers.get("correlationid") ??
+    response.headers.get("x-correlation-id")
+  );
+}
+
+function withCorrelationId(value: unknown, correlationId: string | null) {
+  if (!correlationId || !isRecord(value) || value.correlationId) {
+    return value;
+  }
+
+  return {
+    ...value,
+    correlationId,
+  };
 }
 
 function summarizeIikoResponse(endpoint: string, body: unknown) {
@@ -800,6 +1358,36 @@ function summarizeIikoResponse(endpoint: string, body: unknown) {
         : 0,
       sizes: Array.isArray(body.sizes) ? body.sizes.length : 0,
       revision: body.revision ?? null,
+    };
+  }
+
+  if (endpoint === "/api/2/menu") {
+    const externalMenus = Array.isArray(body.externalMenus)
+      ? body.externalMenus
+      : [];
+
+    return {
+      correlationId: body.correlationId ?? null,
+      externalMenusCount: externalMenus.length,
+      menuIds: externalMenus
+        .map((menu) =>
+          isRecord(menu)
+            ? getStringValue(menu.id, menu.externalMenuId, menu.menuId)
+            : null,
+        )
+        .filter(Boolean),
+    };
+  }
+
+  if (endpoint === "/api/2/menu/by_id") {
+    return {
+      correlationId: body.correlationId ?? null,
+      productsLikeArraysCount: countDeepArraysByKey(body, ["products", "items"]),
+      categoriesLikeArraysCount: countDeepArraysByKey(body, [
+        "itemCategories",
+        "categories",
+        "groups",
+      ]),
     };
   }
 

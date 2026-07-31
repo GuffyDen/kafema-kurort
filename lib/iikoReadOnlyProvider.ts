@@ -67,6 +67,18 @@ export const iikoReadOnlyRequests: IikoReadOnlyRequest[] = [
   },
   {
     method: "POST",
+    endpoint: "/api/2/menu",
+    mode: "read-only",
+    purpose: "Получение списка внешних меню iiko.",
+  },
+  {
+    method: "POST",
+    endpoint: "/api/2/menu/by_id",
+    mode: "read-only",
+    purpose: "Получение внешнего меню iiko по menuId, если оно доступно.",
+  },
+  {
+    method: "POST",
     endpoint: "/api/1/stop_lists",
     mode: "read-only",
     purpose: "Получение стоп-листов, если read-only метод доступен.",

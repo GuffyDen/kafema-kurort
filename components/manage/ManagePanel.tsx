@@ -4,7 +4,6 @@ import Image from "next/image";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  createIikoSyncSummary,
   iikoReadOnlyRequests,
   type IikoConnectionResult,
 } from "@/lib/iikoReadOnlyProvider";
@@ -72,13 +71,28 @@ type IikoCheckDiagnostics = {
   organizationsCount?: number;
   terminalGroupsCount?: number;
   terminalGroupFound?: boolean;
+  selectedOrganizationId: string | null;
   selectedOrganizationName: string | null;
+  selectedTerminalGroupId: string | null;
   selectedTerminalGroupName: string | null;
+  externalMenuId: string | null;
+  externalMenuName: string | null;
+  priceCategoriesCount: number;
+  firstProducts: Array<{
+    id: string | null;
+    name: string;
+    price: number | null;
+  }>;
   categoriesCount: number;
   productsCount: number;
   modifiersCount: number;
   menuReceived: boolean;
-  rawErrors?: unknown[];
+  rawErrors?: Array<{
+    endpoint?: string;
+    status?: number;
+    correlationId?: string | null;
+    message: string;
+  }>;
   cache?: {
     status: string;
     checkedAt?: string;
@@ -147,8 +161,6 @@ export function ManagePanel() {
     banners: "Утренний кофе, сезонные напитки, десерты к выдаче",
     contacts: "+7 (914) 234-56-78",
   });
-
-  const syncSummary = useMemo(() => createIikoSyncSummary(menu), [menu]);
 
   useEffect(() => {
     void refreshWebhookStatus();
@@ -233,9 +245,9 @@ export function ManagePanel() {
     setShowEnvModeWarning(true);
 
     try {
-      const response = await fetch("/api/iiko/check", {
+      const response = await fetch("/api/iiko/check?refresh=1", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
       });
       const payload = (await response.json()) as
         | {
@@ -362,7 +374,6 @@ export function ManagePanel() {
               iikoResult={iikoResult}
               isCheckingIiko={isCheckingIiko}
               showEnvModeWarning={showEnvModeWarning}
-              syncSummary={syncSummary}
               webhookCheckedAt={webhookCheckedAt}
               webhookStatus={webhookStatus}
               onCheckIiko={checkIikoConnection}
@@ -409,7 +420,6 @@ function ConnectionsSection({
   iikoResult,
   isCheckingIiko,
   showEnvModeWarning,
-  syncSummary,
   webhookCheckedAt,
   webhookStatus,
   onCheckIiko,
@@ -421,13 +431,6 @@ function ConnectionsSection({
   iikoResult: IikoConnectionResult | null;
   isCheckingIiko: boolean;
   showEnvModeWarning: boolean;
-  syncSummary: {
-    products: number;
-    categories: number;
-    modifiers: number;
-    terminalGroups: number;
-    stopLists: number;
-  };
   webhookCheckedAt: Date | null;
   webhookStatus: IikoWebhookStatus | null;
   onCheckIiko: () => void;
@@ -455,7 +458,7 @@ function ConnectionsSection({
         <TabloIntegrationCard />
       </div>
 
-      <DeveloperDiagnostics diagnostics={iikoDiagnostics} summary={syncSummary} />
+      <DeveloperDiagnostics diagnostics={iikoDiagnostics} />
     </div>
   );
 }
@@ -482,27 +485,37 @@ function IikoCloudApiCard({
     diagnostics?.selectedTerminalGroupName ??
     result?.organization.terminalGroupId ??
     "Не проверено";
+  const organizationId = diagnostics?.selectedOrganizationId ?? null;
+  const terminalGroupId = diagnostics?.selectedTerminalGroupId ?? null;
+  const externalMenuName = diagnostics?.externalMenuName ?? "Не проверено";
+  const externalMenuId = diagnostics?.externalMenuId ?? null;
+  const priceCategoriesCount = diagnostics?.priceCategoriesCount ?? 0;
   const categoriesCount = diagnostics?.categoriesCount ?? result?.summary.categories ?? 0;
   const productsCount = diagnostics?.productsCount ?? result?.summary.products ?? 0;
   const modifiersCount = diagnostics?.modifiersCount ?? result?.summary.modifiers ?? 0;
   const authVersion = diagnostics?.authVersion ?? "v2";
-  const connected = Boolean(tokenReceived && result && !error);
-  const productsMissing = connected && productsCount === 0;
+  const connected = Boolean(
+    diagnostics?.ok && tokenReceived && productsCount > 0 && result && !error,
+  );
+  const diagnosticError = diagnostics?.rawErrors?.[0];
+  const lastCheckedAt = diagnostics?.cache?.checkedAt
+    ? formatWebhookDate(diagnostics.cache.checkedAt)
+    : result?.lastSyncAt ?? "Не проверено";
 
   return (
     <Card>
       <IntegrationCardHeader
-        description="Read-only проверка меню, организации и терминальной группы."
-        status={error ? "Ошибка" : connected ? "Подключено" : "Не проверено"}
+        description="Проверка организации, точки и внешнего меню."
+        status={error ? "Ошибка" : connected ? "iiko подключена" : "Не проверено"}
         title="iiko Cloud API"
         tone={error ? "danger" : connected ? "success" : "neutral"}
       />
 
       <div className="mt-5 grid gap-3 sm:grid-cols-2">
-        <Info label="authVersion" value={authVersion} />
-        <Info label="tokenReceived" value={tokenReceived ? "true" : "false"} />
         <Info label="Организация" value={organizationName} />
-        <Info label="Terminal group" value={terminalGroupName} />
+        <Info label="Терминальная группа" value={terminalGroupName} />
+        <Info label="Меню" value={externalMenuName} />
+        <Info label="Ценовые категории" value={String(priceCategoriesCount)} />
       </div>
 
       <div className="mt-5 grid grid-cols-3 gap-3">
@@ -511,21 +524,32 @@ function IikoCloudApiCard({
         <CompactMetric label="Модификаторы" value={modifiersCount} />
       </div>
 
-      {productsMissing ? (
-        <div className="mt-5 rounded-3xl bg-[#FFF4D7] p-4 text-sm font-bold leading-6 text-[#8A6500]">
-          <p>Авторизация успешна.</p>
-          <p>Организация найдена.</p>
-          <p>Терминальная группа найдена.</p>
-          <p>iiko не возвращает товары.</p>
-          <p>Категорий: {categoriesCount}.</p>
-          <p>Товаров: 0.</p>
+      {connected && (diagnostics?.firstProducts.length ?? 0) > 0 ? (
+        <div className="mt-5 rounded-3xl bg-[#F7F7F7] p-4">
+          <p className="text-sm font-black text-[#3B2F2A]">Первые товары</p>
+          <ul className="mt-3 space-y-2 text-sm font-bold text-[#777777]">
+            {diagnostics?.firstProducts.map((product) => (
+              <li className="flex items-center justify-between gap-4" key={product.id ?? product.name}>
+                <span>{product.name}</span>
+                <span className="shrink-0 text-[#3B2F2A]">
+                  {product.price === null
+                    ? "Цена не указана"
+                    : `${product.price.toLocaleString("ru-RU")} ₽`}
+                </span>
+              </li>
+            ))}
+          </ul>
         </div>
       ) : null}
 
       {error ? (
-        <p className="mt-5 rounded-3xl bg-[#FFE7E7] p-4 text-sm font-bold leading-6 text-[#B00020]">
-          {error}
-        </p>
+        <div className="mt-5 rounded-3xl bg-[#FFE7E7] p-4 text-sm font-bold leading-6 text-[#B00020]">
+          <p>{error}</p>
+          {diagnosticError?.status ? <p>HTTP status: {diagnosticError.status}</p> : null}
+          {diagnosticError?.correlationId ? (
+            <p>Correlation ID: {diagnosticError.correlationId}</p>
+          ) : null}
+        </div>
       ) : null}
 
       <PrimaryButton onClick={onCheck} disabled={isChecking}>
@@ -537,6 +561,12 @@ function IikoCloudApiCard({
           Технические детали
         </summary>
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <Info label="authVersion" value={authVersion} />
+          <Info label="tokenReceived" value={tokenReceived ? "true" : "false"} />
+          <Info label="organizationId" value={organizationId ?? "Нет данных"} />
+          <Info label="terminalGroupId" value={terminalGroupId ?? "Нет данных"} />
+          <Info label="externalMenuId" value={externalMenuId ?? "Нет данных"} />
+          <Info label="Последняя проверка" value={lastCheckedAt} />
           <Info label="Secrets" value="Только server env" />
           <Info label="App credentials" value="Tablo" />
           <Info label="Tenant credentials" value="Кафема Санаторная" />
@@ -817,16 +847,8 @@ function TabloIntegrationCard() {
 
 function DeveloperDiagnostics({
   diagnostics,
-  summary,
 }: {
   diagnostics: IikoCheckDiagnostics | null;
-  summary: {
-    products: number;
-    categories: number;
-    modifiers: number;
-    terminalGroups: number;
-    stopLists: number;
-  };
 }) {
   return (
     <details className="rounded-[28px] border border-[#E9E1D7] bg-white p-5 shadow-[0_18px_50px_rgba(36,24,16,0.08)]">
@@ -845,12 +867,17 @@ function DeveloperDiagnostics({
           </ul>
         </div>
         <div className="rounded-3xl bg-[#F7F7F7] p-4">
-          <p className="text-sm font-black text-[#3B2F2A]">Последняя локальная сводка</p>
+          <p className="text-sm font-black text-[#3B2F2A]">
+            Последняя проверка External Menu
+          </p>
           <div className="mt-3 grid grid-cols-2 gap-2">
-            <CompactMetric label="Товары" value={summary.products} />
-            <CompactMetric label="Категории" value={summary.categories} />
-            <CompactMetric label="Модификаторы" value={summary.modifiers} />
-            <CompactMetric label="Terminal groups" value={summary.terminalGroups} />
+            <CompactMetric label="Товары" value={diagnostics?.productsCount ?? 0} />
+            <CompactMetric label="Категории" value={diagnostics?.categoriesCount ?? 0} />
+            <CompactMetric label="Модификаторы" value={diagnostics?.modifiersCount ?? 0} />
+            <CompactMetric
+              label="Terminal groups"
+              value={diagnostics?.terminalGroupsCount ?? 0}
+            />
           </div>
         </div>
       </div>
