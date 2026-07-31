@@ -41,6 +41,46 @@ export function parseCategoryOverridePatch(value: unknown) {
   return patch;
 }
 
+export function parseCategoryOrder(value: unknown) {
+  const body = assertRecord(value);
+
+  if (!Array.isArray(body.order) || body.order.length === 0) {
+    throw new Error("Порядок категорий должен быть непустым массивом");
+  }
+
+  const categoryIds = new Set<string>();
+
+  return body.order.map((entry) => {
+    const item = assertRecord(entry);
+
+    if (
+      typeof item.categoryId !== "string" ||
+      item.categoryId.trim().length === 0
+    ) {
+      throw new Error("categoryId должен быть непустой строкой");
+    }
+
+    if (
+      typeof item.sortOrder !== "number" ||
+      !Number.isInteger(item.sortOrder) ||
+      item.sortOrder < 10
+    ) {
+      throw new Error("sortOrder должен быть целым числом не меньше 10");
+    }
+
+    if (categoryIds.has(item.categoryId)) {
+      throw new Error("Порядок категорий содержит повторяющийся categoryId");
+    }
+
+    categoryIds.add(item.categoryId);
+
+    return {
+      categoryId: item.categoryId,
+      sortOrder: item.sortOrder,
+    };
+  });
+}
+
 function assertRecord(value: unknown): Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw new Error("Ожидается JSON-объект");
@@ -99,4 +139,3 @@ function copyNullableBoolean(
 
   target[key] = value;
 }
-

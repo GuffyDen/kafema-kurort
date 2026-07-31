@@ -92,6 +92,30 @@ export async function patchCategoryOverride(
   return next;
 }
 
+export async function updateCategoryOrder(
+  order: Array<{ categoryId: string; sortOrder: number }>,
+) {
+  const { document, persistence } = await readStorefrontOverrides();
+  assertWritable(persistence);
+  const categories = { ...document.categories };
+
+  order.forEach(({ categoryId, sortOrder }) => {
+    categories[categoryId] = {
+      ...(categories[categoryId] ?? {}),
+      sortOrder,
+    };
+  });
+
+  const next = {
+    ...document,
+    categories,
+    updatedAt: new Date().toISOString(),
+  };
+
+  await writeDocument(next);
+  return next;
+}
+
 async function writeDocument(document: StorefrontOverridesDocument) {
   await writeStorefrontJson(
     storefrontRedisKeys.overrides,

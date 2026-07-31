@@ -1,7 +1,11 @@
 "use client";
 
-import type { ReactNode } from "react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import type {
+  KeyboardEvent as ReactKeyboardEvent,
+  PointerEvent as ReactPointerEvent,
+  ReactNode,
+} from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { fallbackImageSrc } from "@/lib/menuStore";
 import type {
   StorefrontAdminResponse,
@@ -27,6 +31,22 @@ type ModifierEntry = {
   relations: string[];
 };
 
+type CategoryDragState = {
+  categoryId: string;
+  pointerId: number;
+  startOrder: string[];
+};
+
+type CategoryDragPosition = {
+  clientX: number;
+  clientY: number;
+};
+
+type OrderFeedback = {
+  type: "success" | "error";
+  message: string;
+};
+
 const viewModeStorageKey = "tablo-storefront-editor-mode";
 const listPageSize = 40;
 
@@ -41,6 +61,52 @@ export function StorefrontSection() {
   );
   const [searchQuery, setSearchQuery] = useState("");
   const [visibleLimit, setVisibleLimit] = useState(listPageSize);
+  const [orderedCategoryIds, setOrderedCategoryIds] = useState<string[]>([]);
+  const [confirmedCategoryIds, setConfirmedCategoryIds] = useState<string[]>(
+    [],
+  );
+  const [isOrderDirty, setIsOrderDirty] = useState(false);
+  const [isSavingOrder, setIsSavingOrder] = useState(false);
+  const [draggedCategoryId, setDraggedCategoryId] = useState<string | null>(
+    null,
+  );
+  const [dropTargetCategoryId, setDropTargetCategoryId] = useState<
+    string | null
+  >(null);
+  const [orderFeedback, setOrderFeedback] =
+    useState<OrderFeedback | null>(null);
+  const orderedCategoryIdsRef = useRef<string[]>([]);
+  const dragStateRef = useRef<CategoryDragState | null>(null);
+  const dragPositionRef = useRef<CategoryDragPosition | null>(null);
+  const dragScrollFrameRef = useRef<number | null>(null);
+  const categoryListRef = useRef<HTMLDivElement | null>(null);
+  const orderedCategories = useMemo(() => {
+    const sourceCategories = storefront?.categories ?? [];
+    const categoryById = new Map(
+      sourceCategories.map((category) => [category.source.id, category]),
+    );
+    const ordered = orderedCategoryIds
+      .map((categoryId) => categoryById.get(categoryId))
+      .filter((category): category is StorefrontCategory => Boolean(category));
+    const orderedIds = new Set(ordered.map((category) => category.source.id));
+
+    return [
+      ...ordered,
+      ...sourceCategories.filter(
+        (category) => !orderedIds.has(category.source.id),
+      ),
+    ];
+  }, [orderedCategoryIds, storefront]);
+  const changedOrderCategoryIds = useMemo(() => {
+    if (!isOrderDirty) return new Set<string>();
+
+    return new Set(
+      orderedCategoryIds.filter(
+        (categoryId, index) =>
+          confirmedCategoryIds[index] !== categoryId,
+      ),
+    );
+  }, [confirmedCategoryIds, isOrderDirty, orderedCategoryIds]);
   const products = useMemo(
     () =>
       storefront?.categories.flatMap((category) => category.products) ?? [],
@@ -53,13 +119,13 @@ export function StorefrontSection() {
   const normalizedQuery = normalizeSearch(searchQuery);
   const filteredCategories = useMemo(
     () =>
-      (storefront?.categories ?? []).filter((category) =>
+      orderedCategories.filter((category) =>
         matchesSearch(
           [category.display.name, category.source.name],
           normalizedQuery,
         ),
       ),
-    [normalizedQuery, storefront],
+    [normalizedQuery, orderedCategories],
   );
   const filteredProducts = useMemo(
     () =>
@@ -87,18 +153,24 @@ export function StorefrontSection() {
     [modifiers, normalizedQuery],
   );
 
-  const loadStorefront = useCallback(async () => {
+  async function loadStorefront() {
     setIsLoading(true);
 
     try {
-      setStorefront(await requestStorefront("/api/admin/storefront"));
+      const next = await requestStorefront("/api/admin/storefront");
+      const nextOrder = getCategoryIds(next);
+      setStorefront(next);
+      setConfirmedCategoryIds(nextOrder);
+      setOrderedCategoryIds(nextOrder);
+      orderedCategoryIdsRef.current = nextOrder;
+      setIsOrderDirty(false);
       setError("");
     } catch (loadError) {
       setError(getErrorMessage(loadError));
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -106,7 +178,11 @@ export function StorefrontSection() {
     requestStorefront("/api/admin/storefront")
       .then((next) => {
         if (cancelled) return;
+        const nextOrder = getCategoryIds(next);
         setStorefront(next);
+        setConfirmedCategoryIds(nextOrder);
+        setOrderedCategoryIds(nextOrder);
+        orderedCategoryIdsRef.current = nextOrder;
         setError("");
       })
       .catch((loadError: unknown) => {
@@ -122,6 +198,15 @@ export function StorefrontSection() {
     };
   }, []);
 
+  useEffect(
+    () => () => {
+      if (dragScrollFrameRef.current !== null) {
+        window.cancelAnimationFrame(dragScrollFrameRef.current);
+      }
+    },
+    [],
+  );
+
   async function syncStorefront() {
     setIsSyncing(true);
 
@@ -129,6 +214,12 @@ export function StorefrontSection() {
       const next = await requestStorefront("/api/admin/storefront/sync", {
         method: "POST",
       });
+      if (!isOrderDirty) {
+        const nextOrder = getCategoryIds(next);
+        setConfirmedCategoryIds(nextOrder);
+        setOrderedCategoryIds(nextOrder);
+        orderedCategoryIdsRef.current = nextOrder;
+      }
       setStorefront(next);
       setError("");
       notifyStorefrontChanged();
@@ -178,6 +269,236 @@ export function StorefrontSection() {
     );
     setStorefront(next);
     notifyStorefrontChanged();
+  }
+
+  function applyCategoryOrder(nextOrder: string[], animate = true) {
+    const positions = animate ? captureCategoryPositions(categoryListRef.current) : null;
+
+    orderedCategoryIdsRef.current = nextOrder;
+    setOrderedCategoryIds(nextOrder);
+    setIsOrderDirty(!areOrdersEqual(nextOrder, confirmedCategoryIds));
+    setOrderFeedback(null);
+
+    if (positions) {
+      animateCategoryPositions(categoryListRef.current, positions);
+    }
+  }
+
+  function moveCategory(categoryId: string, targetIndex: number) {
+    const currentOrder = orderedCategoryIdsRef.current;
+    const currentIndex = currentOrder.indexOf(categoryId);
+    const boundedTargetIndex = Math.max(
+      0,
+      Math.min(targetIndex, currentOrder.length - 1),
+    );
+
+    if (currentIndex < 0 || currentIndex === boundedTargetIndex) return;
+
+    const nextOrder = [...currentOrder];
+    nextOrder.splice(currentIndex, 1);
+    nextOrder.splice(boundedTargetIndex, 0, categoryId);
+    applyCategoryOrder(nextOrder);
+  }
+
+  function beginCategoryDrag(
+    event: ReactPointerEvent<HTMLButtonElement>,
+    categoryId: string,
+  ) {
+    if (
+      storefront?.persistence.writable !== true ||
+      isSavingOrder ||
+      normalizedQuery ||
+      (event.pointerType === "mouse" && event.button !== 0)
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    dragStateRef.current = {
+      categoryId,
+      pointerId: event.pointerId,
+      startOrder: [...orderedCategoryIdsRef.current],
+    };
+    dragPositionRef.current = {
+      clientX: event.clientX,
+      clientY: event.clientY,
+    };
+    setDraggedCategoryId(categoryId);
+    setDropTargetCategoryId(categoryId);
+    setOrderFeedback(null);
+  }
+
+  function moveCategoryDrag(event: ReactPointerEvent<HTMLButtonElement>) {
+    const dragState = dragStateRef.current;
+    if (!dragState || dragState.pointerId !== event.pointerId) return;
+
+    event.preventDefault();
+    dragPositionRef.current = {
+      clientX: event.clientX,
+      clientY: event.clientY,
+    };
+    updateDraggedCategoryTarget(event.clientX, event.clientY);
+    scheduleCategoryAutoScroll();
+  }
+
+  function updateDraggedCategoryTarget(clientX: number, clientY: number) {
+    const dragState = dragStateRef.current;
+    if (!dragState) return;
+
+    const target = document
+      .elementFromPoint(clientX, clientY)
+      ?.closest<HTMLElement>("[data-category-id]");
+    const targetCategoryId = target?.dataset.categoryId;
+
+    if (!targetCategoryId || targetCategoryId === dragState.categoryId) return;
+
+    const currentOrder = orderedCategoryIdsRef.current;
+    const currentIndex = currentOrder.indexOf(dragState.categoryId);
+    const targetIndex = currentOrder.indexOf(targetCategoryId);
+    const targetBounds = target.getBoundingClientRect();
+    const targetMiddle = targetBounds.top + targetBounds.height / 2;
+
+    if (
+      currentIndex < 0 ||
+      targetIndex < 0 ||
+      (currentIndex < targetIndex && clientY < targetMiddle) ||
+      (currentIndex > targetIndex && clientY > targetMiddle)
+    ) {
+      return;
+    }
+
+    setDropTargetCategoryId(targetCategoryId);
+    moveCategory(dragState.categoryId, targetIndex);
+  }
+
+  function scheduleCategoryAutoScroll() {
+    if (dragScrollFrameRef.current !== null) return;
+
+    const position = dragPositionRef.current;
+    if (!position || getCategoryAutoScrollSpeed(position.clientY) === 0) return;
+
+    dragScrollFrameRef.current = window.requestAnimationFrame(
+      runCategoryAutoScroll,
+    );
+  }
+
+  function runCategoryAutoScroll() {
+    dragScrollFrameRef.current = null;
+    const position = dragPositionRef.current;
+    if (!dragStateRef.current || !position) return;
+
+    const scrollSpeed = getCategoryAutoScrollSpeed(position.clientY);
+    if (scrollSpeed === 0) return;
+
+    window.scrollBy({ top: scrollSpeed, behavior: "auto" });
+    updateDraggedCategoryTarget(position.clientX, position.clientY);
+    dragScrollFrameRef.current = window.requestAnimationFrame(
+      runCategoryAutoScroll,
+    );
+  }
+
+  function finishCategoryDrag(event: ReactPointerEvent<HTMLButtonElement>) {
+    const dragState = dragStateRef.current;
+    if (!dragState || dragState.pointerId !== event.pointerId) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    dragStateRef.current = null;
+    dragPositionRef.current = null;
+    if (dragScrollFrameRef.current !== null) {
+      window.cancelAnimationFrame(dragScrollFrameRef.current);
+      dragScrollFrameRef.current = null;
+    }
+    setDraggedCategoryId(null);
+    setDropTargetCategoryId(null);
+  }
+
+  function cancelCategoryDrag(event: ReactPointerEvent<HTMLButtonElement>) {
+    const dragState = dragStateRef.current;
+    if (!dragState || dragState.pointerId !== event.pointerId) return;
+
+    applyCategoryOrder(dragState.startOrder);
+    finishCategoryDrag(event);
+  }
+
+  function moveCategoryWithKeyboard(
+    event: ReactKeyboardEvent<HTMLButtonElement>,
+    categoryId: string,
+  ) {
+    if (
+      storefront?.persistence.writable !== true ||
+      isSavingOrder ||
+      normalizedQuery
+    ) {
+      return;
+    }
+
+    const currentIndex = orderedCategoryIdsRef.current.indexOf(categoryId);
+    let targetIndex = currentIndex;
+
+    if (event.key === "ArrowUp") targetIndex -= 1;
+    if (event.key === "ArrowDown") targetIndex += 1;
+    if (event.key === "Home") targetIndex = 0;
+    if (event.key === "End") {
+      targetIndex = orderedCategoryIdsRef.current.length - 1;
+    }
+    if (targetIndex === currentIndex) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    moveCategory(categoryId, targetIndex);
+  }
+
+  function cancelCategoryOrder() {
+    applyCategoryOrder([...confirmedCategoryIds]);
+  }
+
+  async function saveCategoryOrder() {
+    const pendingOrder = [...orderedCategoryIdsRef.current];
+    const previousOrder = [...confirmedCategoryIds];
+    setIsSavingOrder(true);
+    setOrderFeedback(null);
+
+    try {
+      const next = await requestStorefront(
+        "/api/admin/storefront/categories/order",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            order: pendingOrder.map((categoryId, index) => ({
+              categoryId,
+              sortOrder: (index + 1) * 10,
+            })),
+          }),
+        },
+      );
+      setConfirmedCategoryIds(pendingOrder);
+      orderedCategoryIdsRef.current = pendingOrder;
+      setOrderedCategoryIds(pendingOrder);
+      setIsOrderDirty(false);
+      setStorefront(next);
+      setOrderFeedback({
+        type: "success",
+        message: "Порядок категорий сохранен",
+      });
+      notifyStorefrontChanged();
+    } catch (saveError) {
+      orderedCategoryIdsRef.current = previousOrder;
+      setOrderedCategoryIds(previousOrder);
+      setIsOrderDirty(false);
+      setOrderFeedback({
+        type: "error",
+        message: getErrorMessage(saveError),
+      });
+    } finally {
+      setIsSavingOrder(false);
+    }
   }
 
   function selectViewMode(nextMode: StorefrontViewMode) {
@@ -293,18 +614,68 @@ export function StorefrontSection() {
             />
           </label>
         ) : null}
+
+        {viewMode === "categories" ? (
+          <div className="mt-3" aria-live="polite">
+            <span className="sr-only" id="category-order-help">
+              Перетаскивайте категории мышкой или пальцем. Для управления с
+              клавиатуры используйте стрелки вверх и вниз, Home и End.
+            </span>
+            {normalizedQuery ? (
+              <p className="rounded-2xl bg-[#F7F7F7] px-4 py-3 text-sm font-bold text-[#777777]">
+                Очистите поиск, чтобы изменить порядок категорий.
+              </p>
+            ) : null}
+            {isOrderDirty ? (
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-[#FFF4D7] px-4 py-3">
+                <p className="text-sm font-black text-[#8A6500]">
+                  Порядок изменен. Сохраните или отмените изменения.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    className="rounded-xl border border-[#E9E1D7] bg-white px-4 py-2 text-sm font-black text-[#3B2F2A] disabled:opacity-50"
+                    disabled={isSavingOrder}
+                    onClick={cancelCategoryOrder}
+                    type="button"
+                  >
+                    Отменить
+                  </button>
+                  <button
+                    className="rounded-xl bg-[#3B2F2A] px-4 py-2 text-sm font-black text-white disabled:cursor-wait disabled:opacity-50"
+                    disabled={isSavingOrder}
+                    onClick={() => void saveCategoryOrder()}
+                    type="button"
+                  >
+                    {isSavingOrder ? "Сохраняем..." : "Сохранить порядок"}
+                  </button>
+                </div>
+              </div>
+            ) : orderFeedback ? (
+              <p
+                className={`rounded-2xl px-4 py-3 text-sm font-black ${
+                  orderFeedback.type === "success"
+                    ? "bg-[#ECF8EF] text-[#226B35]"
+                    : "bg-[#FFE7E7] text-[#B00020]"
+                }`}
+              >
+                {orderFeedback.message}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
       </div>
 
       {viewMode === "all" ? (
-        storefront.categories.length === 0 ? (
+        orderedCategories.length === 0 ? (
           <StorefrontState
             description="iiko не вернула категории и товары."
             title="Внешнее меню пусто"
           />
         ) : (
-          storefront.categories.map((category) => (
+          orderedCategories.map((category) => (
             <CategoryEditor
               category={category}
+              orderChanged={changedOrderCategoryIds.has(category.source.id)}
               key={`${category.source.id}:${JSON.stringify(category.overrides)}`}
               writable={storefront.persistence.writable}
               onPatch={patchCategory}
@@ -320,7 +691,7 @@ export function StorefrontSection() {
           emptyDescription="Попробуйте изменить поисковый запрос."
           emptyTitle="Категории не найдены"
           filteredCount={filteredCategories.length}
-          hasSourceItems={storefront.categories.length > 0}
+          hasSourceItems={orderedCategories.length > 0}
           onLoadMore={() =>
             setVisibleLimit((current) => current + listPageSize)
           }
@@ -329,14 +700,39 @@ export function StorefrontSection() {
             filteredCategories.length - visibleLimit,
           )}
         >
-          {filteredCategories.slice(0, visibleLimit).map((category) => (
-            <CategoryEditor
-              category={category}
-              key={`${category.source.id}:${JSON.stringify(category.overrides)}`}
-              writable={storefront.persistence.writable}
-              onPatch={patchCategory}
-            />
-          ))}
+          <div className="space-y-4" ref={categoryListRef}>
+            {filteredCategories.slice(0, visibleLimit).map((category) => (
+              <CategoryEditor
+                category={category}
+                dragHandle={
+                  <CategoryDragHandle
+                    categoryName={category.display.name}
+                    disabled={
+                      !storefront.persistence.writable ||
+                      isSavingOrder ||
+                      Boolean(normalizedQuery)
+                    }
+                    dragging={draggedCategoryId === category.source.id}
+                    onKeyDown={(event) =>
+                      moveCategoryWithKeyboard(event, category.source.id)
+                    }
+                    onPointerCancel={cancelCategoryDrag}
+                    onPointerDown={(event) =>
+                      beginCategoryDrag(event, category.source.id)
+                    }
+                    onPointerMove={moveCategoryDrag}
+                    onPointerUp={finishCategoryDrag}
+                  />
+                }
+                dropTarget={dropTargetCategoryId === category.source.id}
+                dragging={draggedCategoryId === category.source.id}
+                orderChanged={changedOrderCategoryIds.has(category.source.id)}
+                key={`${category.source.id}:${JSON.stringify(category.overrides)}`}
+                writable={storefront.persistence.writable}
+                onPatch={patchCategory}
+              />
+            ))}
+          </div>
         </StorefrontList>
       ) : null}
 
@@ -397,6 +793,10 @@ function CategoryEditor({
   onPatch,
   onPatchProduct,
   onResetProduct,
+  dragHandle,
+  dragging = false,
+  dropTarget = false,
+  orderChanged = false,
 }: {
   category: StorefrontCategory;
   writable: boolean;
@@ -409,12 +809,13 @@ function CategoryEditor({
     patch: Partial<Record<keyof StorefrontProductOverride, unknown>>,
   ) => Promise<void>;
   onResetProduct?: (itemId: string) => Promise<void>;
+  dragHandle?: ReactNode;
+  dragging?: boolean;
+  dropTarget?: boolean;
+  orderChanged?: boolean;
 }) {
   const [displayName, setDisplayName] = useState(
     category.overrides.displayName ?? "",
-  );
-  const [sortOrder, setSortOrder] = useState(
-    String(category.overrides.sortOrder ?? category.display.sortOrder),
   );
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState("");
@@ -425,7 +826,6 @@ function CategoryEditor({
     try {
       await onPatch(category.source.id, {
         displayName: displayName.trim() || null,
-        sortOrder: Number(sortOrder),
         isVisible: category.display.isVisible,
       });
       setMessage("Настройки категории сохранены");
@@ -452,44 +852,57 @@ function CategoryEditor({
   }
 
   return (
-    <details className="rounded-[28px] border border-[#E9E1D7] bg-[#FFFDF8] p-5" open>
+    <details
+      className={`rounded-[28px] border bg-[#FFFDF8] p-5 transition-[border-color,box-shadow,opacity,transform] duration-200 ${
+        dragging
+          ? "border-[#E30613] opacity-90 shadow-[0_18px_42px_rgba(36,24,16,0.16)]"
+          : dropTarget
+            ? "border-[#E30613] shadow-[inset_0_3px_0_#E30613]"
+            : "border-[#E9E1D7]"
+      }`}
+      data-category-id={category.source.id}
+      open
+    >
       <summary className="cursor-pointer list-none">
         <div className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <p className="text-xl font-black text-[#3B2F2A]">
-              {category.display.name}
-            </p>
-            <p className="mt-1 text-sm font-bold text-[#777777]">
-              {category.products.length} товаров · Значение iiko:{" "}
-              {category.source.name}
-            </p>
+          <div className="flex min-w-0 items-center gap-3">
+            {dragHandle}
+            <div>
+              <p className="text-xl font-black text-[#3B2F2A]">
+                {category.display.name}
+              </p>
+              <p className="mt-1 text-sm font-bold text-[#777777]">
+                {category.products.length} товаров · Значение iiko:{" "}
+                {category.source.name}
+              </p>
+            </div>
           </div>
-          <span
-            className={`rounded-full px-3 py-1 text-xs font-black ${
-              category.display.isVisible
-                ? "bg-[#ECF8EF] text-[#226B35]"
-                : "bg-[#F7F7F7] text-[#777777]"
-            }`}
-          >
-            {category.display.isVisible ? "Показывается" : "Скрыта"}
-          </span>
+          <div className="flex flex-wrap items-center gap-2">
+            {orderChanged ? (
+              <span className="rounded-full bg-[#FFF4D7] px-3 py-1 text-xs font-black text-[#8A6500]">
+                Порядок изменен
+              </span>
+            ) : null}
+            <span
+              className={`rounded-full px-3 py-1 text-xs font-black ${
+                category.display.isVisible
+                  ? "bg-[#ECF8EF] text-[#226B35]"
+                  : "bg-[#F7F7F7] text-[#777777]"
+              }`}
+            >
+              {category.display.isVisible ? "Показывается" : "Скрыта"}
+            </span>
+          </div>
         </div>
       </summary>
 
-      <div className="mt-5 grid gap-3 border-t border-[#E9E1D7] pt-5 md:grid-cols-[1fr_160px_auto_auto]">
+      <div className="mt-5 grid gap-3 border-t border-[#E9E1D7] pt-5 md:grid-cols-[1fr_auto_auto]">
         <Field
           label="Название категории для сайта"
           value={displayName}
           placeholder={category.source.name}
           changed={category.overrides.displayName !== undefined}
           onChange={setDisplayName}
-        />
-        <Field
-          label="Сортировка"
-          type="number"
-          value={sortOrder}
-          changed={category.overrides.sortOrder !== undefined}
-          onChange={setSortOrder}
         />
         <button
           className="self-end rounded-2xl border border-[#E9E1D7] bg-white px-4 py-3 text-sm font-black text-[#3B2F2A] disabled:opacity-50"
@@ -1036,6 +1449,58 @@ function Toggle({
   );
 }
 
+function CategoryDragHandle({
+  categoryName,
+  disabled,
+  dragging,
+  onKeyDown,
+  onPointerCancel,
+  onPointerDown,
+  onPointerMove,
+  onPointerUp,
+}: {
+  categoryName: string;
+  disabled: boolean;
+  dragging: boolean;
+  onKeyDown: (event: ReactKeyboardEvent<HTMLButtonElement>) => void;
+  onPointerCancel: (event: ReactPointerEvent<HTMLButtonElement>) => void;
+  onPointerDown: (event: ReactPointerEvent<HTMLButtonElement>) => void;
+  onPointerMove: (event: ReactPointerEvent<HTMLButtonElement>) => void;
+  onPointerUp: (event: ReactPointerEvent<HTMLButtonElement>) => void;
+}) {
+  return (
+    <button
+      aria-describedby="category-order-help"
+      aria-label={`Изменить порядок категории ${categoryName}`}
+      className={`flex min-h-11 min-w-11 shrink-0 touch-none select-none items-center justify-center rounded-xl border text-lg font-black transition ${
+        disabled
+          ? "cursor-not-allowed border-[#E9E1D7] bg-[#F7F7F7] text-[#BBBBBB]"
+          : dragging
+            ? "cursor-grabbing border-[#E30613] bg-[#FFE7E7] text-[#B00020]"
+            : "cursor-grab border-[#E9E1D7] bg-white text-[#777777] hover:border-[#CFC3B6] hover:text-[#3B2F2A]"
+      }`}
+      disabled={disabled}
+      title={
+        disabled
+          ? "Очистите поиск, чтобы изменить порядок"
+          : "Перетащить категорию. Стрелки вверх и вниз меняют позицию"
+      }
+      type="button"
+      onClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+      }}
+      onKeyDown={onKeyDown}
+      onPointerCancel={onPointerCancel}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+    >
+      <span aria-hidden="true">⋮⋮</span>
+    </button>
+  );
+}
+
 function ModeButton({
   active,
   count,
@@ -1353,6 +1818,83 @@ function matchesSearch(values: string[], query: string) {
   return values.some((value) =>
     value.toLocaleLowerCase("ru-RU").includes(query),
   );
+}
+
+function getCategoryIds(storefront: StorefrontAdminResponse) {
+  return storefront.categories.map((category) => category.source.id);
+}
+
+function areOrdersEqual(first: string[], second: string[]) {
+  return (
+    first.length === second.length &&
+    first.every((categoryId, index) => categoryId === second[index])
+  );
+}
+
+function captureCategoryPositions(container: HTMLDivElement | null) {
+  if (!container) return null;
+
+  return new Map(
+    [...container.querySelectorAll<HTMLElement>("[data-category-id]")].map(
+      (element) => [
+        element.dataset.categoryId ?? "",
+        element.getBoundingClientRect().top,
+      ],
+    ),
+  );
+}
+
+function animateCategoryPositions(
+  container: HTMLDivElement | null,
+  previousPositions: Map<string, number>,
+) {
+  if (
+    !container ||
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  ) {
+    return;
+  }
+
+  window.requestAnimationFrame(() => {
+    container
+      .querySelectorAll<HTMLElement>("[data-category-id]")
+      .forEach((element) => {
+        const previousTop = previousPositions.get(
+          element.dataset.categoryId ?? "",
+        );
+        if (previousTop === undefined || typeof element.animate !== "function") {
+          return;
+        }
+
+        const offset = previousTop - element.getBoundingClientRect().top;
+        if (Math.abs(offset) < 1) return;
+
+        element.animate(
+          [
+            { transform: `translateY(${offset}px)` },
+            { transform: "translateY(0)" },
+          ],
+          {
+            duration: 180,
+            easing: "ease-out",
+          },
+        );
+      });
+  });
+}
+
+function getCategoryAutoScrollSpeed(clientY: number) {
+  const edgeSize = Math.min(120, window.innerHeight * 0.2);
+
+  if (clientY < edgeSize) {
+    return -Math.ceil((edgeSize - clientY) / 6);
+  }
+
+  if (clientY > window.innerHeight - edgeSize) {
+    return Math.ceil((clientY - (window.innerHeight - edgeSize)) / 6);
+  }
+
+  return 0;
 }
 
 function formatRelations(relations: string[]) {
