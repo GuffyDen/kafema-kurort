@@ -9,18 +9,22 @@ type CheckoutModalProps = {
   items: CartItem[];
   total: number;
   itemsCount: number;
+  availabilityMessage: string;
+  isCheckingAvailability: boolean;
   onBack: () => void;
   onConfirm: (customer: {
     name: string;
     phone: string;
     comment?: string;
-  }) => void;
+  }) => Promise<void>;
 };
 
 export function CheckoutModal({
   items,
   total,
   itemsCount,
+  availabilityMessage,
+  isCheckingAvailability,
   onBack,
   onConfirm,
 }: CheckoutModalProps) {
@@ -33,7 +37,7 @@ export function CheckoutModal({
   });
   const [phoneError, setPhoneError] = useState("");
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     const formData = new FormData(event.currentTarget);
@@ -48,7 +52,7 @@ export function CheckoutModal({
     saveCustomerProfile({ name, phone });
     localStorage.setItem("kafema-phone", phone);
     setPhoneError("");
-    onConfirm({ name, phone, comment: comment || undefined });
+    await onConfirm({ name, phone, comment: comment || undefined });
   }
 
   function handlePhoneChange(event: ChangeEvent<HTMLInputElement>) {
@@ -184,11 +188,17 @@ export function CheckoutModal({
         </div>
 
         <div className="border-t border-[#E8D9C8] bg-[var(--color-card)] px-5 pb-5 pt-4">
+          {availabilityMessage ? (
+            <p className="mb-4 rounded-[20px] bg-[#FCE8E5] px-4 py-3 text-sm font-bold leading-5 text-[#8F2F24]">
+              {availabilityMessage}
+            </p>
+          ) : null}
           <button
             type="submit"
-            className="h-[60px] w-full rounded-[28px] bg-[var(--color-caramel)] px-5 text-base font-black text-white shadow-[0_18px_34px_rgba(189,134,73,0.26)] transition duration-300 hover:bg-[#A86F34] active:scale-[0.99]"
+            className="h-[60px] w-full rounded-[28px] bg-[var(--color-caramel)] px-5 text-base font-black text-white shadow-[0_18px_34px_rgba(189,134,73,0.26)] transition duration-300 hover:bg-[#A86F34] active:scale-[0.99] disabled:cursor-not-allowed disabled:bg-[#D9C8B5] disabled:shadow-none"
+            disabled={isCheckingAvailability}
           >
-            Подтвердить заказ
+            {isCheckingAvailability ? "Проверяем наличие..." : "Подтвердить заказ"}
           </button>
         </div>
       </form>

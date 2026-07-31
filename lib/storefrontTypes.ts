@@ -21,8 +21,12 @@ export type StorefrontCategoryOverride = {
 
 export type StorefrontModifierOption = {
   itemId: string;
+  sourceName: string;
+  sourcePrice: number | null;
   name: string;
   price: number | null;
+  isVisible: boolean;
+  overrides: StorefrontProductOverride;
   minQuantity: number;
   maxQuantity: number;
 };
@@ -110,6 +114,7 @@ export type StorefrontResponse = {
     name: string | null;
   };
   syncedAt: string;
+  revision: number | null;
   categoriesCount: number;
   productsCount: number;
   modifiersCount: number;
@@ -119,10 +124,23 @@ export type StorefrontResponse = {
   persistence: StorefrontPersistence;
 };
 
+export type StorefrontSyncStatus = {
+  menuSyncedAt: string;
+  stopListCheckedAt: string | null;
+  stopListStale: boolean;
+  lastError: {
+    at: string;
+    message: string;
+  } | null;
+};
+
+export type StorefrontAdminResponse = StorefrontResponse & {
+  syncStatus: StorefrontSyncStatus;
+};
+
 export type StorefrontOverridesDocument = {
   version: 1;
   products: Record<string, StorefrontProductOverride>;
   categories: Record<string, StorefrontCategoryOverride>;
   updatedAt: string | null;
 };
-

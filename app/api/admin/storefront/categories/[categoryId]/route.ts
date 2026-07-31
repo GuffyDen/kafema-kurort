@@ -3,7 +3,7 @@ import {
   patchCategoryOverride,
   StorefrontPersistenceError,
 } from "@/lib/storefrontOverrideStore";
-import { getStorefront } from "@/lib/storefrontService";
+import { getAdminStorefront } from "@/lib/storefrontAdminService";
 import { parseCategoryOverridePatch } from "@/lib/storefrontValidation";
 
 export const dynamic = "force-dynamic";
@@ -16,7 +16,7 @@ export async function PATCH(
     const { categoryId } = await context.params;
     const patch = parseCategoryOverridePatch(await request.json());
     await patchCategoryOverride(categoryId, patch);
-    return Response.json(await getStorefront(), {
+    return Response.json(await getAdminStorefront(), {
       headers: { "Cache-Control": "no-store" },
     });
   } catch (error) {

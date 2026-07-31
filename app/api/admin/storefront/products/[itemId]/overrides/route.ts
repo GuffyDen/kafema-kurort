@@ -3,7 +3,7 @@ import {
   deleteProductOverride,
   StorefrontPersistenceError,
 } from "@/lib/storefrontOverrideStore";
-import { getStorefront } from "@/lib/storefrontService";
+import { getAdminStorefront } from "@/lib/storefrontAdminService";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +14,7 @@ export async function DELETE(
   try {
     const { itemId } = await context.params;
     await deleteProductOverride(itemId);
-    return Response.json(await getStorefront(), {
+    return Response.json(await getAdminStorefront(), {
       headers: { "Cache-Control": "no-store" },
     });
   } catch (error) {

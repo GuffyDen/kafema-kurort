@@ -131,6 +131,16 @@ export type IikoExternalMenuSource = {
   syncedAt: string;
 };
 
+export type IikoStopListSource = {
+  organizationId: string;
+  terminalGroupId: string;
+  response: {
+    correlationId?: string;
+    terminalGroupStopLists?: unknown[];
+  };
+  checkedAt: string;
+};
+
 type IikoCheckError = {
   step: string;
   endpoint?: string;
@@ -209,6 +219,14 @@ type IikoApiStopLists = {
 };
 
 const defaultBaseUrl = "https://api-ru.iiko.services/api/1";
+const integrationTokenTtlMs = 50 * 60 * 1000;
+let integrationTokenCache:
+  | {
+      token: string;
+      expiresAt: number;
+    }
+  | null = null;
+let integrationTokenRequest: Promise<string> | null = null;
 
 export function createIikoConfig(input?: Partial<IikoConnectionInput>): IikoClientConfig {
   const apiBaseUrl = trimTrailingSlash(
@@ -258,7 +276,7 @@ export async function fetchIikoExternalMenuSource(): Promise<IikoExternalMenuSou
     throw new Error(credentialError.message);
   }
 
-  const token = await getAccessToken(config);
+  const token = await getIntegrationAccessToken(config);
   const organizations = await getOrganizations(config, token);
 
   if (organizations.length === 0) {
@@ -343,6 +361,68 @@ export async function fetchIikoExternalMenuSource(): Promise<IikoExternalMenuSou
     priceCategoriesCount: priceCategories.length,
     menu,
     syncedAt: new Date().toISOString(),
+  };
+}
+
+export async function fetchIikoStopList(context?: {
+  organizationId: string;
+  terminalGroupId: string;
+}): Promise<IikoStopListSource> {
+  const config = createIikoConfig();
+  const credentialError = getMissingCredentialErrors(config)[0];
+
+  if (credentialError) {
+    throw new Error(credentialError.message);
+  }
+
+  const token = await getIntegrationAccessToken(config);
+  let organizationId = context?.organizationId ?? null;
+  let terminalGroupId = context?.terminalGroupId ?? config.terminalGroupId;
+
+  if (!organizationId) {
+    const organizations = await getOrganizations(config, token);
+    const terminalGroups = await getTerminalGroups(config, token, organizations);
+    const terminalGroup = terminalGroups.find(
+      (group) => group.id === config.terminalGroupId,
+    );
+
+    if (!terminalGroup?.id) {
+      throw new Error(
+        `TerminalGroupId ${config.terminalGroupId} не найден среди доступных terminal groups`,
+      );
+    }
+
+    const organization = selectOrganizationByTerminalGroup(
+      organizations,
+      terminalGroup,
+    );
+
+    if (!organization) {
+      throw new Error(
+        `Не удалось определить организацию для terminalGroupId ${config.terminalGroupId}`,
+      );
+    }
+
+    organizationId = organization.id;
+    terminalGroupId = String(terminalGroup.id);
+  }
+
+  const response = await requestIiko<IikoStopListSource["response"]>(
+    config,
+    "/api/1/stop_lists",
+    {
+      organizationIds: [organizationId],
+      terminalGroupsIds: [terminalGroupId],
+      returnSize: false,
+    },
+    token,
+  );
+
+  return {
+    organizationId,
+    terminalGroupId,
+    response,
+    checkedAt: new Date().toISOString(),
   };
 }
 
@@ -547,6 +627,32 @@ async function getAccessToken(
   }
 
   return data.token;
+}
+
+async function getIntegrationAccessToken(config: IikoClientConfig) {
+  if (
+    integrationTokenCache &&
+    integrationTokenCache.expiresAt > Date.now()
+  ) {
+    return integrationTokenCache.token;
+  }
+
+  if (integrationTokenRequest) {
+    return integrationTokenRequest;
+  }
+
+  integrationTokenRequest = getAccessToken(config);
+
+  try {
+    const token = await integrationTokenRequest;
+    integrationTokenCache = {
+      token,
+      expiresAt: Date.now() + integrationTokenTtlMs,
+    };
+    return token;
+  } finally {
+    integrationTokenRequest = null;
+  }
 }
 
 async function requestAccessToken(
@@ -885,6 +991,7 @@ async function requestIiko<TResponse>(
     },
     ...(body ? { body: JSON.stringify(body) } : {}),
     cache: "no-store",
+    signal: AbortSignal.timeout(15_000),
   });
   const rawBody = await response.text();
   const durationMs = Date.now() - startedAt;

@@ -1,14 +1,16 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { fallbackImageSrc } from "@/lib/menuStore";
 import type {
+  StorefrontAdminResponse,
   StorefrontCategory,
   StorefrontCategoryOverride,
+  StorefrontModifierOption,
   StorefrontProduct,
   StorefrontProductOverride,
-  StorefrontResponse,
+  StorefrontSyncStatus,
 } from "@/lib/storefrontTypes";
 
 type RequestError = {
@@ -17,11 +19,73 @@ type RequestError = {
   correlationId?: string | null;
 };
 
+type StorefrontViewMode = "categories" | "products" | "modifiers";
+
+type ModifierEntry = {
+  itemId: string;
+  option: StorefrontModifierOption;
+  relations: string[];
+};
+
+const viewModeStorageKey = "tablo-storefront-editor-mode";
+const listPageSize = 40;
+
 export function StorefrontSection() {
-  const [storefront, setStorefront] = useState<StorefrontResponse | null>(null);
+  const [storefront, setStorefront] =
+    useState<StorefrontAdminResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
   const [error, setError] = useState("");
+  const [viewMode, setViewMode] = useState<StorefrontViewMode>(
+    getStoredViewMode,
+  );
+  const [searchQuery, setSearchQuery] = useState("");
+  const [visibleLimit, setVisibleLimit] = useState(listPageSize);
+  const products = useMemo(
+    () =>
+      storefront?.categories.flatMap((category) => category.products) ?? [],
+    [storefront],
+  );
+  const modifiers = useMemo(
+    () => createModifierEntries(storefront?.categories ?? []),
+    [storefront],
+  );
+  const normalizedQuery = normalizeSearch(searchQuery);
+  const filteredCategories = useMemo(
+    () =>
+      (storefront?.categories ?? []).filter((category) =>
+        matchesSearch(
+          [category.display.name, category.source.name],
+          normalizedQuery,
+        ),
+      ),
+    [normalizedQuery, storefront],
+  );
+  const filteredProducts = useMemo(
+    () =>
+      products.filter((product) =>
+        matchesSearch(
+          [
+            product.display.name,
+            product.source.name,
+            product.source.categoryName,
+            product.source.sku ?? "",
+          ],
+          normalizedQuery,
+        ),
+      ),
+    [normalizedQuery, products],
+  );
+  const filteredModifiers = useMemo(
+    () =>
+      modifiers.filter((modifier) =>
+        matchesSearch(
+          [modifier.option.name, modifier.option.sourceName],
+          normalizedQuery,
+        ),
+      ),
+    [modifiers, normalizedQuery],
+  );
 
   const loadStorefront = useCallback(async () => {
     setIsLoading(true);
@@ -116,6 +180,18 @@ export function StorefrontSection() {
     notifyStorefrontChanged();
   }
 
+  function selectViewMode(nextMode: StorefrontViewMode) {
+    setViewMode(nextMode);
+    setSearchQuery("");
+    setVisibleLimit(listPageSize);
+    storeViewMode(nextMode);
+  }
+
+  function updateSearchQuery(value: string) {
+    setSearchQuery(value);
+    setVisibleLimit(listPageSize);
+  }
+
   if (isLoading && !storefront) {
     return <StorefrontState title="Загружаем External Menu из iiko..." />;
   }
@@ -156,11 +232,7 @@ export function StorefrontSection() {
           </button>
         </div>
 
-        <div className="mt-5 grid grid-cols-3 gap-3">
-          <Metric label="Категории" value={storefront.categoriesCount} />
-          <Metric label="Товары" value={storefront.productsCount} />
-          <Metric label="Модификаторы" value={storefront.modifiersCount} />
-        </div>
+        <SyncStatus status={storefront.syncStatus} />
 
         {storefront.persistence.warning ? (
           <p
@@ -181,23 +253,116 @@ export function StorefrontSection() {
         ) : null}
       </section>
 
-      {storefront.categories.length === 0 ? (
-        <StorefrontState
-          title="Внешнее меню пусто"
-          description="iiko не вернула категории и товары."
-        />
-      ) : (
-        storefront.categories.map((category) => (
-          <CategoryEditor
-            category={category}
-            key={`${category.source.id}:${JSON.stringify(category.overrides)}`}
-            writable={storefront.persistence.writable}
-            onPatch={patchCategory}
-            onPatchProduct={patchProduct}
-            onResetProduct={resetProduct}
+      <div className="sticky top-3 z-20 rounded-[24px] border border-[#E9E1D7] bg-white/95 p-3 shadow-[0_16px_40px_rgba(36,24,16,0.10)] backdrop-blur">
+        <div
+          aria-label="Режим редактора витрины"
+          className="grid grid-cols-3 gap-2"
+          role="group"
+        >
+          <ModeButton
+            active={viewMode === "categories"}
+            count={storefront.categoriesCount}
+            label="Категории"
+            onClick={() => selectViewMode("categories")}
           />
-        ))
-      )}
+          <ModeButton
+            active={viewMode === "products"}
+            count={storefront.productsCount}
+            label="Товары"
+            onClick={() => selectViewMode("products")}
+          />
+          <ModeButton
+            active={viewMode === "modifiers"}
+            count={modifiers.length}
+            label="Модификаторы"
+            onClick={() => selectViewMode("modifiers")}
+          />
+        </div>
+
+        <label className="mt-3 block">
+          <span className="sr-only">{getSearchLabel(viewMode)}</span>
+          <input
+            className={`${inputClass} bg-white`}
+            onChange={(event) => updateSearchQuery(event.target.value)}
+            placeholder={getSearchPlaceholder(viewMode)}
+            type="search"
+            value={searchQuery}
+          />
+        </label>
+      </div>
+
+      {viewMode === "categories" ? (
+        <StorefrontList
+          emptyDescription="Попробуйте изменить поисковый запрос."
+          emptyTitle="Категории не найдены"
+          filteredCount={filteredCategories.length}
+          hasSourceItems={storefront.categories.length > 0}
+          onLoadMore={() =>
+            setVisibleLimit((current) => current + listPageSize)
+          }
+          remainingCount={Math.max(
+            0,
+            filteredCategories.length - visibleLimit,
+          )}
+        >
+          {filteredCategories.slice(0, visibleLimit).map((category) => (
+            <CategoryEditor
+              category={category}
+              key={`${category.source.id}:${JSON.stringify(category.overrides)}`}
+              writable={storefront.persistence.writable}
+              onPatch={patchCategory}
+            />
+          ))}
+        </StorefrontList>
+      ) : null}
+
+      {viewMode === "products" ? (
+        <StorefrontList
+          emptyDescription="Попробуйте изменить поисковый запрос."
+          emptyTitle="Товары не найдены"
+          filteredCount={filteredProducts.length}
+          hasSourceItems={products.length > 0}
+          onLoadMore={() =>
+            setVisibleLimit((current) => current + listPageSize)
+          }
+          remainingCount={Math.max(0, filteredProducts.length - visibleLimit)}
+        >
+          {filteredProducts.slice(0, visibleLimit).map((product) => (
+            <ProductEditor
+              categoryLabel={product.source.categoryName}
+              key={`${product.source.itemId}:${JSON.stringify(product.overrides)}`}
+              product={product}
+              writable={storefront.persistence.writable}
+              onPatch={patchProduct}
+              onReset={resetProduct}
+            />
+          ))}
+        </StorefrontList>
+      ) : null}
+
+      {viewMode === "modifiers" ? (
+        <StorefrontList
+          emptyDescription="Попробуйте изменить поисковый запрос."
+          emptyTitle="Модификаторы не найдены"
+          filteredCount={filteredModifiers.length}
+          hasSourceItems={modifiers.length > 0}
+          onLoadMore={() =>
+            setVisibleLimit((current) => current + listPageSize)
+          }
+          remainingCount={Math.max(0, filteredModifiers.length - visibleLimit)}
+        >
+          <div className="grid gap-4 lg:grid-cols-2">
+            {filteredModifiers.slice(0, visibleLimit).map((modifier) => (
+              <ModifierEditor
+                entry={modifier}
+                key={`${modifier.itemId}:${JSON.stringify(modifier.option.overrides)}`}
+                writable={storefront.persistence.writable}
+                onPatch={patchProduct}
+              />
+            ))}
+          </div>
+        </StorefrontList>
+      ) : null}
     </div>
   );
 }
@@ -206,8 +371,6 @@ function CategoryEditor({
   category,
   writable,
   onPatch,
-  onPatchProduct,
-  onResetProduct,
 }: {
   category: StorefrontCategory;
   writable: boolean;
@@ -215,11 +378,6 @@ function CategoryEditor({
     categoryId: string,
     patch: Partial<Record<keyof StorefrontCategoryOverride, unknown>>,
   ) => Promise<void>;
-  onPatchProduct: (
-    itemId: string,
-    patch: Partial<Record<keyof StorefrontProductOverride, unknown>>,
-  ) => Promise<void>;
-  onResetProduct: (itemId: string) => Promise<void>;
 }) {
   const [displayName, setDisplayName] = useState(
     category.overrides.displayName ?? "",
@@ -320,29 +478,19 @@ function CategoryEditor({
         </button>
       </div>
       {message ? <StatusMessage message={message} /> : null}
-
-      <div className="mt-5 grid gap-4">
-        {category.products.map((product) => (
-          <ProductEditor
-            key={`${product.source.itemId}:${JSON.stringify(product.overrides)}`}
-            product={product}
-            writable={writable}
-            onPatch={onPatchProduct}
-            onReset={onResetProduct}
-          />
-        ))}
-      </div>
     </details>
   );
 }
 
 function ProductEditor({
   product,
+  categoryLabel,
   writable,
   onPatch,
   onReset,
 }: {
   product: StorefrontProduct;
+  categoryLabel: string;
   writable: boolean;
   onPatch: (
     itemId: string,
@@ -418,7 +566,10 @@ function ProductEditor({
   const displayImage = image.trim() || product.source.imageUrl;
 
   return (
-    <article className="rounded-[24px] border border-[#E9E1D7] bg-white p-4 shadow-[0_12px_32px_rgba(36,24,16,0.06)]">
+    <article className="rounded-[24px] border border-[#E9E1D7] bg-white p-4 shadow-[0_12px_32px_rgba(36,24,16,0.06)] [contain-intrinsic-size:760px] [content-visibility:auto]">
+      <p className="mb-4 text-xs font-black uppercase tracking-[0.08em] text-[#C46F28]">
+        {categoryLabel}
+      </p>
       <div className="grid gap-5 xl:grid-cols-[180px_1fr]">
         <div>
           <div className="aspect-square overflow-hidden rounded-2xl bg-[#F7F7F7]">
@@ -620,6 +771,120 @@ function ProductEditor({
   );
 }
 
+function ModifierEditor({
+  entry,
+  writable,
+  onPatch,
+}: {
+  entry: ModifierEntry;
+  writable: boolean;
+  onPatch: (
+    itemId: string,
+    patch: Partial<Record<keyof StorefrontProductOverride, unknown>>,
+  ) => Promise<void>;
+}) {
+  const [price, setPrice] = useState(
+    entry.option.overrides.displayPrice === undefined
+      ? ""
+      : String(entry.option.overrides.displayPrice),
+  );
+  const [isVisible, setIsVisible] = useState(entry.option.isVisible);
+  const [isSaving, setIsSaving] = useState(false);
+  const [message, setMessage] = useState("");
+
+  async function saveModifier() {
+    setIsSaving(true);
+    setMessage("");
+
+    try {
+      await onPatch(entry.itemId, {
+        displayPrice: price.trim() ? Number(price) : null,
+        isVisible,
+      });
+      setMessage("Модификатор сохранен");
+    } catch (error) {
+      setMessage(getErrorMessage(error));
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  return (
+    <article className="rounded-[24px] border border-[#E9E1D7] bg-white p-4 shadow-[0_12px_32px_rgba(36,24,16,0.06)] [contain-intrinsic-size:320px] [content-visibility:auto]">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="text-lg font-black text-[#3B2F2A]">
+            {entry.option.name}
+          </h3>
+          <p className="mt-1 text-xs font-bold text-[#999999]">
+            Значение iiko: {entry.option.sourceName}
+          </p>
+        </div>
+        <span
+          className={`shrink-0 rounded-full px-3 py-1 text-xs font-black ${
+            isVisible
+              ? "bg-[#ECF8EF] text-[#226B35]"
+              : "bg-[#F7F7F7] text-[#777777]"
+          }`}
+        >
+          {isVisible ? "Показывается" : "Скрыт"}
+        </span>
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_auto_auto]">
+        <Field
+          changed={entry.option.overrides.displayPrice !== undefined}
+          label="Цена для сайта"
+          onChange={setPrice}
+          placeholder={
+            entry.option.sourcePrice === null
+              ? ""
+              : String(entry.option.sourcePrice)
+          }
+          type="number"
+          value={price}
+        />
+        <button
+          className="self-end rounded-2xl border border-[#E9E1D7] bg-white px-4 py-3 text-sm font-black text-[#3B2F2A] disabled:opacity-50"
+          disabled={!writable || isSaving}
+          onClick={() => setIsVisible((current) => !current)}
+          type="button"
+        >
+          {isVisible ? "Скрыть" : "Показывать"}
+        </button>
+        <button
+          className="self-end rounded-2xl bg-[#3B2F2A] px-4 py-3 text-sm font-black text-white disabled:cursor-wait disabled:opacity-50"
+          disabled={!writable || isSaving}
+          onClick={() => void saveModifier()}
+          type="button"
+        >
+          {isSaving ? "Сохраняем..." : "Сохранить"}
+        </button>
+      </div>
+
+      <div className="mt-4 border-t border-[#E9E1D7] pt-4">
+        <p className="text-xs font-black uppercase tracking-[0.08em] text-[#777777]">
+          Используется в
+        </p>
+        <p className="mt-2 text-sm font-bold leading-6 text-[#777777]">
+          {formatRelations(entry.relations)}
+        </p>
+        {entry.relations.length > 1 ? (
+          <p className="mt-2 text-xs font-bold text-[#999999]">
+            Изменение применяется ко всем связанным товарам.
+          </p>
+        ) : null}
+      </div>
+
+      {message ? (
+        <div className="mt-4">
+          <StatusMessage message={message} />
+        </div>
+      ) : null}
+    </article>
+  );
+}
+
 function OverrideField({
   label,
   sourceValue,
@@ -724,13 +989,168 @@ function Toggle({
   );
 }
 
-function Metric({ label, value }: { label: string; value: number }) {
+function ModeButton({
+  active,
+  count,
+  label,
+  onClick,
+}: {
+  active: boolean;
+  count: number;
+  label: string;
+  onClick: () => void;
+}) {
   return (
-    <div className="rounded-2xl bg-[#F7F7F7] p-3 text-center">
-      <p className="text-xl font-black text-[#3B2F2A]">{value}</p>
-      <p className="mt-1 text-xs font-bold text-[#777777]">{label}</p>
+    <button
+      aria-pressed={active}
+      className={`min-h-14 rounded-2xl border px-2 py-2 text-center transition ${
+        active
+          ? "border-[#E30613] bg-[#FFE7E7] text-[#B00020] shadow-[0_8px_20px_rgba(227,6,19,0.10)]"
+          : "border-transparent bg-[#F7F7F7] text-[#777777] hover:border-[#E9E1D7] hover:bg-white"
+      }`}
+      onClick={onClick}
+      type="button"
+    >
+      <span className="block text-xs font-black sm:text-sm">{label}</span>
+      <span className="mt-0.5 block text-base font-black">{count}</span>
+    </button>
+  );
+}
+
+function StorefrontList({
+  children,
+  emptyDescription,
+  emptyTitle,
+  filteredCount,
+  hasSourceItems,
+  onLoadMore,
+  remainingCount,
+}: {
+  children: ReactNode;
+  emptyDescription: string;
+  emptyTitle: string;
+  filteredCount: number;
+  hasSourceItems: boolean;
+  onLoadMore: () => void;
+  remainingCount: number;
+}) {
+  if (!hasSourceItems) {
+    return (
+      <StorefrontState
+        description="iiko не вернула данные для этого раздела."
+        title="Раздел пока пуст"
+      />
+    );
+  }
+
+  if (filteredCount === 0) {
+    return (
+      <StorefrontState
+        description={emptyDescription}
+        title={emptyTitle}
+      />
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {children}
+      {remainingCount > 0 ? (
+        <div className="flex justify-center pt-2">
+          <button
+            className="rounded-2xl border border-[#E9E1D7] bg-white px-5 py-3 text-sm font-black text-[#3B2F2A] shadow-[0_10px_24px_rgba(36,24,16,0.06)]"
+            onClick={onLoadMore}
+            type="button"
+          >
+            Показать еще · {Math.min(listPageSize, remainingCount)}
+          </button>
+        </div>
+      ) : null}
     </div>
   );
+}
+
+function SyncStatus({ status }: { status: StorefrontSyncStatus }) {
+  const connection = getConnectionStatus(status);
+
+  return (
+    <div className="mt-4 rounded-2xl border border-[#E9E1D7] bg-[#FFFDF8] p-4">
+      <div className="flex items-center gap-2">
+        <span
+          aria-hidden="true"
+          className={`h-2.5 w-2.5 rounded-full ${connection.dotClass}`}
+        />
+        <p className={`text-sm font-black ${connection.textClass}`}>
+          {connection.label}
+        </p>
+      </div>
+      <div className="mt-3 grid gap-2 text-sm font-bold text-[#777777] md:grid-cols-3">
+        <SyncValue
+          label="Последняя синхронизация меню"
+          value={formatRelativeDate(status.menuSyncedAt)}
+        />
+        <SyncValue
+          label="Последнее обновление stop-list"
+          value={
+            status.stopListCheckedAt
+              ? formatRelativeDate(status.stopListCheckedAt)
+              : "Нет данных"
+          }
+        />
+        <SyncValue
+          label="Последняя ошибка"
+          value={status.lastError?.message ?? "—"}
+          isError={Boolean(status.lastError)}
+        />
+      </div>
+    </div>
+  );
+}
+
+function SyncValue({
+  label,
+  value,
+  isError = false,
+}: {
+  label: string;
+  value: string;
+  isError?: boolean;
+}) {
+  return (
+    <div>
+      <p className="text-xs text-[#999999]">{label}</p>
+      <p
+        className={`mt-1 ${isError ? "text-[#B00020]" : "text-[#3B2F2A]"}`}
+        suppressHydrationWarning
+      >
+        {value}
+      </p>
+    </div>
+  );
+}
+
+function getConnectionStatus(status: StorefrontSyncStatus) {
+  if (status.lastError && !status.stopListCheckedAt) {
+    return {
+      label: "Нет связи с iiko",
+      dotClass: "bg-[#B00020]",
+      textClass: "text-[#B00020]",
+    };
+  }
+
+  if (status.lastError || status.stopListStale) {
+    return {
+      label: "Подключено, обновление задерживается",
+      dotClass: "bg-[#D79B21]",
+      textClass: "text-[#8A6500]",
+    };
+  }
+
+  return {
+    label: "Подключено к iiko",
+    dotClass: "bg-[#2F8F4E]",
+    textClass: "text-[#226B35]",
+  };
 }
 
 function TechnicalValue({ label, value }: { label: string; value: string }) {
@@ -792,12 +1212,115 @@ function StorefrontState({
   );
 }
 
+function createModifierEntries(
+  categories: StorefrontCategory[],
+): ModifierEntry[] {
+  const entries = new Map<
+    string,
+    {
+      option: StorefrontModifierOption;
+      relations: Set<string>;
+    }
+  >();
+
+  categories.forEach((category) => {
+    category.products.forEach((product) => {
+      product.source.modifiers.forEach((group) => {
+        group.options.forEach((option) => {
+          const relation = [
+            category.display.name,
+            product.display.name,
+            group.name,
+          ].join(" · ");
+          const current = entries.get(option.itemId);
+
+          if (current) {
+            current.relations.add(relation);
+          } else {
+            entries.set(option.itemId, {
+              option,
+              relations: new Set([relation]),
+            });
+          }
+        });
+      });
+    });
+  });
+
+  return [...entries.entries()]
+    .map(([itemId, entry]) => ({
+      itemId,
+      option: entry.option,
+      relations: [...entry.relations].sort((first, second) =>
+        first.localeCompare(second, "ru"),
+      ),
+    }))
+    .sort((first, second) =>
+      first.option.name.localeCompare(second.option.name, "ru"),
+    );
+}
+
+function getStoredViewMode(): StorefrontViewMode {
+  if (typeof window === "undefined") return "categories";
+
+  try {
+    const stored = localStorage.getItem(viewModeStorageKey);
+    return stored === "products" || stored === "modifiers"
+      ? stored
+      : "categories";
+  } catch {
+    return "categories";
+  }
+}
+
+function storeViewMode(mode: StorefrontViewMode) {
+  try {
+    localStorage.setItem(viewModeStorageKey, mode);
+  } catch {
+    // The editor remains usable when browser storage is unavailable.
+  }
+}
+
+function getSearchLabel(mode: StorefrontViewMode) {
+  if (mode === "categories") return "Поиск по категориям";
+  if (mode === "products") return "Поиск по товарам";
+  return "Поиск по модификаторам";
+}
+
+function getSearchPlaceholder(mode: StorefrontViewMode) {
+  if (mode === "categories") return "Найти категорию";
+  if (mode === "products") return "Найти товар";
+  return "Найти модификатор";
+}
+
+function normalizeSearch(value: string) {
+  return value.trim().toLocaleLowerCase("ru-RU");
+}
+
+function matchesSearch(values: string[], query: string) {
+  if (!query) return true;
+
+  return values.some((value) =>
+    value.toLocaleLowerCase("ru-RU").includes(query),
+  );
+}
+
+function formatRelations(relations: string[]) {
+  const visibleRelations = relations.slice(0, 3);
+  const remaining = relations.length - visibleRelations.length;
+
+  return remaining > 0
+    ? `${visibleRelations.join("; ")} и еще ${remaining}`
+    : visibleRelations.join("; ");
+}
+
 async function requestStorefront(url: string, init?: RequestInit) {
   const response = await fetch(url, {
     ...init,
     cache: "no-store",
   });
-  const payload = (await response.json()) as StorefrontResponse & RequestError;
+  const payload = (await response.json()) as StorefrontAdminResponse &
+    RequestError;
 
   if (!response.ok) {
     const details = [
@@ -826,6 +1349,23 @@ function formatDate(value: string) {
     dateStyle: "short",
     timeStyle: "medium",
   }).format(new Date(value));
+}
+
+function formatRelativeDate(value: string) {
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) return "Нет данных";
+
+  const elapsedSeconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
+  if (elapsedSeconds < 5) return "только что";
+  if (elapsedSeconds < 60) return `${elapsedSeconds} сек. назад`;
+
+  const elapsedMinutes = Math.floor(elapsedSeconds / 60);
+  if (elapsedMinutes < 60) return `${elapsedMinutes} мин. назад`;
+
+  const elapsedHours = Math.floor(elapsedMinutes / 60);
+  if (elapsedHours < 24) return `${elapsedHours} ч. назад`;
+
+  return formatDate(value);
 }
 
 function formatPrice(value: number | null) {

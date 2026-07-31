@@ -1,38 +1,28 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import path from "node:path";
 import type {
   StorefrontCategoryOverride,
   StorefrontOverridesDocument,
-  StorefrontPersistence,
   StorefrontProductOverride,
 } from "@/lib/storefrontTypes";
+import {
+  readStorefrontJson,
+  storefrontRedisKeys,
+  StorefrontPersistenceError,
+  writeStorefrontJson,
+} from "@/lib/storefrontStorage";
 
-const redisKey = "tablo:kafema-sanatornaya:storefront-overrides:v1";
-const localDirectory = path.join(process.cwd(), ".data");
-const localFile = path.join(localDirectory, "storefront-overrides.json");
+const localFileName = "storefront-overrides.json";
 
-export class StorefrontPersistenceError extends Error {}
+export { StorefrontPersistenceError };
 
 export async function readStorefrontOverrides() {
-  const persistence = getStorefrontPersistence();
-
-  if (persistence.mode === "redis") {
-    return {
-      document: await readRedisDocument(),
-      persistence,
-    };
-  }
-
-  if (persistence.mode === "local-file") {
-    return {
-      document: await readLocalDocument(),
-      persistence,
-    };
-  }
+  const stored = await readStorefrontJson<StorefrontOverridesDocument>(
+    storefrontRedisKeys.overrides,
+    localFileName,
+  );
 
   return {
-    document: createEmptyDocument(),
-    persistence,
+    document: normalizeDocument(stored.value),
+    persistence: stored.persistence,
   };
 }
 
@@ -58,7 +48,7 @@ export async function patchProductOverride(
     delete next.products[itemId];
   }
 
-  await writeDocument(next, persistence);
+  await writeDocument(next);
   return next;
 }
 
@@ -72,7 +62,7 @@ export async function deleteProductOverride(itemId: string) {
     products,
     updatedAt: new Date().toISOString(),
   };
-  await writeDocument(next, persistence);
+  await writeDocument(next);
   return next;
 }
 
@@ -98,120 +88,16 @@ export async function patchCategoryOverride(
     delete next.categories[categoryId];
   }
 
-  await writeDocument(next, persistence);
+  await writeDocument(next);
   return next;
 }
 
-function getStorefrontPersistence(): StorefrontPersistence {
-  const redisUrl =
-    process.env.UPSTASH_REDIS_REST_URL?.trim() ||
-    process.env.KV_REST_API_URL?.trim();
-  const redisToken =
-    process.env.UPSTASH_REDIS_REST_TOKEN?.trim() ||
-    process.env.KV_REST_API_TOKEN?.trim();
-
-  if (redisUrl && redisToken) {
-    return {
-      mode: "redis",
-      writable: true,
-      warning: null,
-    };
-  }
-
-  if (process.env.NODE_ENV !== "production") {
-    return {
-      mode: "local-file",
-      writable: true,
-      warning:
-        "Локальный режим: overrides хранятся в .data. Для Vercel подключите Redis.",
-    };
-  }
-
-  return {
-    mode: "unconfigured",
-    writable: false,
-    warning:
-      "Постоянное хранилище не подключено. Добавьте UPSTASH_REDIS_REST_URL и UPSTASH_REDIS_REST_TOKEN.",
-  };
-}
-
-async function readRedisDocument() {
-  const result = await executeRedisCommand(["GET", redisKey]);
-
-  if (typeof result !== "string") {
-    return createEmptyDocument();
-  }
-
-  return parseDocument(result);
-}
-
-async function readLocalDocument() {
-  try {
-    return parseDocument(await readFile(localFile, "utf8"));
-  } catch (error) {
-    if (isMissingFileError(error)) {
-      return createEmptyDocument();
-    }
-
-    throw error;
-  }
-}
-
-async function writeDocument(
-  document: StorefrontOverridesDocument,
-  persistence: StorefrontPersistence,
-) {
-  if (persistence.mode === "redis") {
-    await executeRedisCommand(["SET", redisKey, JSON.stringify(document)]);
-    return;
-  }
-
-  if (persistence.mode === "local-file") {
-    await mkdir(localDirectory, { recursive: true });
-    const temporaryFile = `${localFile}.${process.pid}.tmp`;
-    await writeFile(temporaryFile, JSON.stringify(document, null, 2), "utf8");
-    await rename(temporaryFile, localFile);
-    return;
-  }
-
-  throw new StorefrontPersistenceError(
-    persistence.warning ?? "Постоянное хранилище не настроено.",
+async function writeDocument(document: StorefrontOverridesDocument) {
+  await writeStorefrontJson(
+    storefrontRedisKeys.overrides,
+    localFileName,
+    document,
   );
-}
-
-async function executeRedisCommand(command: string[]) {
-  const url =
-    process.env.UPSTASH_REDIS_REST_URL?.trim() ||
-    process.env.KV_REST_API_URL?.trim();
-  const token =
-    process.env.UPSTASH_REDIS_REST_TOKEN?.trim() ||
-    process.env.KV_REST_API_TOKEN?.trim();
-
-  if (!url || !token) {
-    throw new StorefrontPersistenceError("Redis не настроен.");
-  }
-
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(command),
-    cache: "no-store",
-  });
-  const payload = (await response.json()) as {
-    result?: unknown;
-    error?: string;
-  };
-
-  if (!response.ok || payload.error) {
-    throw new StorefrontPersistenceError(
-      payload.error || `Redis вернул HTTP ${response.status}`,
-    );
-  }
-
-  return payload.result;
 }
 
 function createEmptyDocument(): StorefrontOverridesDocument {
@@ -223,19 +109,17 @@ function createEmptyDocument(): StorefrontOverridesDocument {
   };
 }
 
-function parseDocument(value: string): StorefrontOverridesDocument {
-  try {
-    const parsed = JSON.parse(value) as Partial<StorefrontOverridesDocument>;
+function normalizeDocument(
+  value: Partial<StorefrontOverridesDocument> | null,
+): StorefrontOverridesDocument {
+  if (!value) return createEmptyDocument();
 
-    return {
-      version: 1,
-      products: parsed.products ?? {},
-      categories: parsed.categories ?? {},
-      updatedAt: parsed.updatedAt ?? null,
-    };
-  } catch {
-    return createEmptyDocument();
-  }
+  return {
+    version: 1,
+    products: value.products ?? {},
+    categories: value.categories ?? {},
+    updatedAt: value.updatedAt ?? null,
+  };
 }
 
 function applyPatch(
@@ -251,19 +135,10 @@ function applyPatch(
   });
 }
 
-function assertWritable(persistence: StorefrontPersistence) {
+function assertWritable(persistence: { writable: boolean; warning: string | null }) {
   if (!persistence.writable) {
     throw new StorefrontPersistenceError(
       persistence.warning ?? "Постоянное хранилище не настроено.",
     );
   }
-}
-
-function isMissingFileError(error: unknown) {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    error.code === "ENOENT"
-  );
 }

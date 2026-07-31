@@ -5,6 +5,11 @@ import {
 } from "@/lib/iikoCloudClient";
 import type { MenuItemKind, MenuState } from "@/lib/menuStore";
 import { readStorefrontOverrides } from "@/lib/storefrontOverrideStore";
+import {
+  readStorefrontMenuSnapshot,
+  writeStorefrontMenuSnapshot,
+  type StorefrontMenuSnapshot,
+} from "@/lib/storefrontSnapshotStore";
 import type {
   StorefrontCategory,
   StorefrontIikoProduct,
@@ -14,14 +19,8 @@ import type {
   StorefrontResponse,
 } from "@/lib/storefrontTypes";
 
-const sourceCacheTtlMs = 60_000;
-let sourceCache:
-  | {
-      value: IikoExternalMenuSource;
-      expiresAt: number;
-    }
-  | null = null;
-let inFlightSource: Promise<IikoExternalMenuSource> | null = null;
+let memorySnapshot: StorefrontMenuSnapshot | null = null;
+let inFlightSync: Promise<StorefrontMenuSnapshot> | null = null;
 
 export class StorefrontIntegrationError extends Error {
   constructor(
@@ -50,6 +49,7 @@ export async function getStorefront({
     organization: source.organization,
     terminalGroup: source.terminalGroup,
     syncedAt: source.syncedAt,
+    revision: getMenuRevision(source.menu),
     categoriesCount: categories.length,
     productsCount: categories.reduce(
       (sum, category) => sum + category.products.length,
@@ -76,28 +76,74 @@ export async function getStorefront({
   };
 }
 
-export function clearStorefrontSourceCache() {
-  sourceCache = null;
-}
-
 async function getExternalMenuSource(refresh: boolean) {
-  if (!refresh && sourceCache && sourceCache.expiresAt > Date.now()) {
-    return sourceCache.value;
+  if (refresh) {
+    return (await syncStorefrontMenu()).source;
   }
-
-  if (!refresh && inFlightSource) {
-    return inFlightSource;
-  }
-
-  inFlightSource = fetchIikoExternalMenuSource();
 
   try {
-    const value = await inFlightSource;
-    sourceCache = {
-      value,
-      expiresAt: Date.now() + sourceCacheTtlMs,
-    };
-    return value;
+    const stored = await readStorefrontMenuSnapshot();
+
+    if (stored.value?.source) {
+      memorySnapshot = stored.value;
+      return stored.value.source;
+    }
+  } catch (error) {
+    console.warn(
+      "Storefront menu snapshot read failed:",
+      error instanceof Error ? error.message : "unknown error",
+    );
+  }
+
+  if (memorySnapshot?.source) {
+    return memorySnapshot.source;
+  }
+
+  return (await syncStorefrontMenu({ requirePersistence: false })).source;
+}
+
+export async function syncStorefrontMenu({
+  requirePersistence = true,
+}: {
+  requirePersistence?: boolean;
+} = {}) {
+  if (inFlightSync) {
+    return inFlightSync;
+  }
+
+  inFlightSync = performStorefrontSync(requirePersistence);
+
+  try {
+    return await inFlightSync;
+  } finally {
+    inFlightSync = null;
+  }
+}
+
+async function performStorefrontSync(requirePersistence: boolean) {
+  try {
+    const source = await fetchIikoExternalMenuSource();
+
+    try {
+      const stored = await writeStorefrontMenuSnapshot(source);
+      memorySnapshot = stored.snapshot;
+      return stored.snapshot;
+    } catch (error) {
+      if (requirePersistence) throw error;
+
+      const snapshot: StorefrontMenuSnapshot = {
+        version: 1,
+        revision: getMenuRevision(source.menu),
+        syncedAt: source.syncedAt,
+        source,
+      };
+      memorySnapshot = snapshot;
+      console.warn(
+        "Storefront menu snapshot write failed:",
+        error instanceof Error ? error.message : "unknown error",
+      );
+      return snapshot;
+    }
   } catch (error) {
     if (error instanceof IikoHttpError) {
       throw new StorefrontIntegrationError(
@@ -110,8 +156,6 @@ async function getExternalMenuSource(refresh: boolean) {
     throw new StorefrontIntegrationError(
       error instanceof Error ? error.message : "Не удалось получить меню iiko",
     );
-  } finally {
-    inFlightSource = null;
   }
 }
 
@@ -140,6 +184,7 @@ function normalizeCategories(
           categoryId,
           categoryName,
           organizationId: source.organization.id,
+          overrides,
           override: overrides.products[
             getString(product.itemId, product.id) ??
               `${categoryId}:item:${productIndex}`
@@ -176,6 +221,7 @@ function normalizeProduct({
   categoryId,
   categoryName,
   organizationId,
+  overrides,
   override = {},
 }: {
   product: Record<string, unknown>;
@@ -183,12 +229,13 @@ function normalizeProduct({
   categoryId: string;
   categoryName: string;
   organizationId: string;
+  overrides: Awaited<ReturnType<typeof readStorefrontOverrides>>["document"];
   override?: StorefrontProduct["overrides"];
 }): StorefrontProduct {
   const itemId =
     getString(product.itemId, product.id) ??
     `${categoryId}:item:${productIndex}`;
-  const itemSizes = normalizeSizes(product, itemId, organizationId);
+  const itemSizes = normalizeSizes(product, itemId, organizationId, overrides);
   const defaultSize =
     itemSizes.find((size) => size.isDefault) ?? itemSizes[0] ?? null;
   const imageUrl =
@@ -236,6 +283,7 @@ function normalizeSizes(
   product: Record<string, unknown>,
   itemId: string,
   organizationId: string,
+  overrides: Awaited<ReturnType<typeof readStorefrontOverrides>>["document"],
 ): StorefrontItemSize[] {
   const rawSizes = Array.isArray(product.itemSizes)
     ? product.itemSizes.filter(isRecord)
@@ -257,6 +305,7 @@ function normalizeSizes(
         itemId,
         sizeId,
         organizationId,
+        overrides,
       ),
     };
   });
@@ -267,6 +316,7 @@ function normalizeModifierGroups(
   itemId: string,
   sizeId: string,
   organizationId: string,
+  overrides: Awaited<ReturnType<typeof readStorefrontOverrides>>["document"],
 ): StorefrontModifierGroup[] {
   const groups = Array.isArray(value) ? value.filter(isRecord) : [];
 
@@ -290,13 +340,24 @@ function normalizeModifierGroups(
         const optionRestrictions = isRecord(option.restrictions)
           ? option.restrictions
           : {};
+        const optionId =
+          getString(option.itemId, option.id) ??
+          `${groupId}:option:${optionIndex}`;
+        const sourceName = getString(option.name) ?? "Без названия";
+        const sourcePrice = getOrganizationPrice(
+          option.prices,
+          organizationId,
+        );
+        const optionOverride = overrides.products[optionId] ?? {};
 
         return {
-          itemId:
-            getString(option.itemId, option.id) ??
-            `${groupId}:option:${optionIndex}`,
-          name: getString(option.name) ?? "Без названия",
-          price: getOrganizationPrice(option.prices, organizationId),
+          itemId: optionId,
+          sourceName,
+          sourcePrice,
+          name: optionOverride.displayName ?? sourceName,
+          price: optionOverride.displayPrice ?? sourcePrice,
+          isVisible: optionOverride.isVisible ?? option.isHidden !== true,
+          overrides: optionOverride,
           minQuantity: getNumber(optionRestrictions.minQuantity) ?? 0,
           maxQuantity: getNumber(optionRestrictions.maxQuantity) ?? 1,
         };
@@ -321,7 +382,7 @@ function createMenuState(categories: StorefrontCategory[]): MenuState {
         name: option.name,
         priceDelta: option.price ?? 0,
         sortOrder: (optionIndex + 1) * 10,
-        isActive: true,
+        isActive: option.isVisible,
       })),
     })),
   );
@@ -479,6 +540,12 @@ function getString(...values: unknown[]) {
 
 function getNumber(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function getMenuRevision(menu: Record<string, unknown>) {
+  return typeof menu.revision === "number" && Number.isFinite(menu.revision)
+    ? menu.revision
+    : null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

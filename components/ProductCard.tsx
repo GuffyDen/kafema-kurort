@@ -21,7 +21,7 @@ export function ProductCard({ product, onAdd }: ProductCardProps) {
 
   return (
     <article
-      className={`overflow-hidden rounded-[24px] border border-[#EFE2D4] bg-[#FFF9F0] shadow-[0_16px_36px_rgba(64,39,23,0.08)] transition duration-500 ${
+      className={`overflow-hidden rounded-[24px] border border-[#EFE2D4] bg-[#FFF9F0] shadow-[0_16px_36px_rgba(64,39,23,0.08)] transition-[opacity,transform,box-shadow] duration-500 ease-out ${
         canAdd
           ? "hover:-translate-y-0.5 hover:shadow-[0_24px_48px_rgba(64,39,23,0.12)]"
           : "opacity-60"
@@ -43,11 +43,16 @@ export function ProductCard({ product, onAdd }: ProductCardProps) {
             Фото скоро
           </div>
         )}
-        {!canAdd ? (
-          <span className="absolute left-3 top-3 rounded-full bg-[#FFF9F0]/92 px-3 py-1 text-xs font-bold text-[var(--color-text-muted)] shadow-sm backdrop-blur">
-            Нет в наличии
-          </span>
-        ) : null}
+        <span
+          aria-hidden={canAdd}
+          className={`absolute left-3 top-3 rounded-full bg-[#FFF9F0]/92 px-3 py-1 text-xs font-bold text-[var(--color-text-muted)] shadow-sm backdrop-blur transition-[opacity,transform] duration-500 ease-out ${
+            canAdd
+              ? "pointer-events-none -translate-y-1 opacity-0"
+              : "translate-y-0 opacity-100"
+          }`}
+        >
+          Нет в наличии
+        </span>
       </div>
 
       <div className="p-4">
@@ -64,10 +69,10 @@ export function ProductCard({ product, onAdd }: ProductCardProps) {
           </p>
           <button
             type="button"
-            className={`flex h-11 w-11 items-center justify-center rounded-full text-2xl leading-none shadow-[0_12px_24px_rgba(64,39,23,0.12)] transition duration-500 active:scale-95 ${
+            className={`flex h-11 w-11 items-center justify-center rounded-full text-2xl leading-none shadow-[0_12px_24px_rgba(64,39,23,0.12)] transition-[color,background-color,opacity,transform,box-shadow] duration-500 ease-out active:scale-95 ${
               canAdd
                 ? "border border-[#EAD8C2] bg-[#F4E5D2] text-[var(--color-text-main)] hover:bg-[#EFD5B3] active:bg-[#E6C399]"
-                : "cursor-not-allowed bg-[#E8D9C8] text-[var(--color-text-muted)] shadow-none"
+                : "cursor-not-allowed bg-[#E8D9C8] text-[var(--color-text-muted)] opacity-70 shadow-none"
             }`}
             onClick={() => onAdd(product)}
             disabled={!canAdd}

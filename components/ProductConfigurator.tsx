@@ -18,13 +18,20 @@ import {
 type ProductConfiguratorProps = {
   product: Product;
   menu: MenuState;
+  availabilityMessage: string;
+  isCheckingAvailability: boolean;
   onClose: () => void;
-  onAdd: (configuredItem: ConfiguredMenuItem, selection: MenuSelection) => void;
+  onAdd: (
+    configuredItem: ConfiguredMenuItem,
+    selection: MenuSelection,
+  ) => Promise<void>;
 };
 
 export function ProductConfigurator({
   product,
   menu,
+  availabilityMessage,
+  isCheckingAvailability,
   onClose,
   onAdd,
 }: ProductConfiguratorProps) {
@@ -44,7 +51,9 @@ export function ProductConfigurator({
     () => configureMenuItem(menu, currentProduct, selection),
     [menu, currentProduct, selection],
   );
-  const canAdd = isMenuSelectionComplete(menu, currentProduct, selection);
+  const canAdd =
+    currentProduct.inStock &&
+    isMenuSelectionComplete(menu, currentProduct, selection);
 
   function selectVariant(variantId: string) {
     setSelection((current) => ({ ...current, variantId }));
@@ -237,13 +246,24 @@ export function ProductConfigurator({
         </div>
 
         <div className="border-t border-[#E8D9C8] bg-[var(--color-card)] px-5 pb-5 pt-4">
+          {!currentProduct.inStock ? (
+            <p className="mb-4 rounded-[20px] bg-[#FCE8E5] px-4 py-3 text-sm font-black text-[#8F2F24]">
+              Нет в наличии
+            </p>
+          ) : availabilityMessage ? (
+            <p className="mb-4 rounded-[20px] bg-[#FCE8E5] px-4 py-3 text-sm font-bold leading-5 text-[#8F2F24]">
+              {availabilityMessage}
+            </p>
+          ) : null}
           <button
             type="button"
             className="h-[60px] w-full rounded-[28px] bg-[var(--color-caramel)] px-5 text-base font-black text-white shadow-[0_18px_34px_rgba(189,134,73,0.26)] transition duration-300 hover:bg-[#A86F34] active:scale-[0.99] disabled:cursor-not-allowed disabled:bg-[#E8D9C8] disabled:text-[var(--color-text-muted)] disabled:shadow-none"
-            disabled={!canAdd}
-            onClick={() => onAdd(configuredItem, selection)}
+            disabled={!canAdd || isCheckingAvailability}
+            onClick={() => void onAdd(configuredItem, selection)}
           >
-            Добавить в корзину · {configuredItem.unitPrice.toLocaleString("ru-RU")} ₽
+            {isCheckingAvailability
+              ? "Проверяем наличие..."
+              : `Добавить в корзину · ${configuredItem.unitPrice.toLocaleString("ru-RU")} ₽`}
           </button>
         </div>
       </div>

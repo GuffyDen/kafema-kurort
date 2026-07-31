@@ -20,14 +20,21 @@ import {
   isMenuItemOrderable,
   type ConfiguredMenuItem,
   type MenuSelection,
+  type MenuState,
 } from "@/lib/menuStore";
 import { createOrder, useOrder, useOrders } from "@/lib/orderStore";
 import type { Order } from "@/lib/orderStore";
+import type { StorefrontAvailabilitySnapshot } from "@/lib/storefrontAvailabilityTypes";
+import { useStorefrontAvailability } from "@/lib/useStorefrontAvailability";
 import { useStorefrontMenu } from "@/lib/useStorefrontMenu";
 
 export function HomeScreen() {
-  const { menu, isLoading: isMenuLoading, error: menuError } =
+  const { menu: storefrontMenu, isLoading: isMenuLoading, error: menuError } =
     useStorefrontMenu();
+  const {
+    snapshot: availability,
+    refresh: refreshAvailability,
+  } = useStorefrontAvailability();
   const [activeSection, setActiveSection] = useState<BottomNavigationItem>("menu");
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
@@ -41,6 +48,19 @@ export function HomeScreen() {
   const [searchQuery, setSearchQuery] = useState("");
   const [isCartPinned, setIsCartPinned] = useState(
     () => typeof window !== "undefined" && window.scrollY > 48,
+  );
+  const [availabilityMessage, setAvailabilityMessage] = useState("");
+  const [isCheckingAvailability, setIsCheckingAvailability] = useState(false);
+  const menu = useMemo(
+    () => ({
+      ...storefrontMenu,
+      menuItems: storefrontMenu.menuItems.map((item) => ({
+        ...item,
+        inStock:
+          item.inStock && availability?.items[item.id]?.available !== false,
+      })),
+    }),
+    [availability, storefrontMenu],
   );
   const orders = useOrders();
   const activeOrder = useOrder(activeOrderId);
@@ -82,11 +102,20 @@ export function HomeScreen() {
   }, [activeCategories, visibleActiveCategoryId]);
 
   const products = useMemo(
-    () =>
-      menu.menuItems.filter(
-        (product) => isMenuItemOrderable(menu, product),
-      ),
-    [menu],
+    () => {
+      const storefrontOrderableIds = new Set(
+        storefrontMenu.menuItems
+          .filter((product) =>
+            isMenuItemOrderable(storefrontMenu, product),
+          )
+          .map((product) => product.id),
+      );
+
+      return menu.menuItems.filter((product) =>
+        storefrontOrderableIds.has(product.id),
+      );
+    },
+    [menu.menuItems, storefrontMenu],
   );
   const normalizedSearchQuery = normalizeSearch(searchQuery);
   const visibleProducts = useMemo(() => {
@@ -127,10 +156,49 @@ export function HomeScreen() {
     return () => window.removeEventListener("scroll", updateCartPosition);
   }, []);
 
-  function addConfiguredItem(
+  async function addConfiguredItem(
     configuredItem: ConfiguredMenuItem,
     selection: MenuSelection,
   ) {
+    setIsCheckingAvailability(true);
+    setAvailabilityMessage("");
+
+    let freshAvailability: StorefrontAvailabilitySnapshot;
+
+    try {
+      freshAvailability = await refreshAvailability();
+    } catch {
+      setAvailabilityMessage(
+        "Не удалось проверить наличие. Попробуйте ещё раз.",
+      );
+      setIsCheckingAvailability(false);
+      return;
+    }
+
+    const requestedItems = [
+      ...cartItems,
+      {
+        id: "pending",
+        product: configuredItem.item,
+        selection,
+        summary: configuredItem.summary,
+        modifiers: configuredItem.baristaLines,
+        unitPrice: configuredItem.unitPrice,
+        quantity: 1,
+      },
+    ];
+    const problems = getAvailabilityProblems(
+      requestedItems,
+      freshAvailability,
+      menu,
+    );
+
+    if (problems.length > 0) {
+      setAvailabilityMessage(formatAvailabilityProblems(problems));
+      setIsCheckingAvailability(false);
+      return;
+    }
+
     const cartItemId = createCartItemId(configuredItem.item.id, selection);
     setCartItems((items) => {
       const existingItem = items.find((item) => item.id === cartItemId);
@@ -157,16 +225,36 @@ export function HomeScreen() {
       ];
     });
     setSelectedProduct(null);
+    setIsCheckingAvailability(false);
   }
 
-  function increaseQuantity(cartItemId: string) {
-    setCartItems((items) =>
-      items.map((item) =>
+  async function increaseQuantity(cartItemId: string) {
+    setAvailabilityMessage("");
+
+    try {
+      const freshAvailability = await refreshAvailability();
+      const nextItems = cartItems.map((item) =>
         item.id === cartItemId
           ? { ...item, quantity: item.quantity + 1 }
           : item,
-      ),
-    );
+      );
+      const problems = getAvailabilityProblems(
+        nextItems,
+        freshAvailability,
+        menu,
+      );
+
+      if (problems.length > 0) {
+        setAvailabilityMessage(formatAvailabilityProblems(problems));
+        return;
+      }
+
+      setCartItems(nextItems);
+    } catch {
+      setAvailabilityMessage(
+        "Не удалось проверить наличие. Попробуйте ещё раз.",
+      );
+    }
   }
 
   function decreaseQuantity(cartItemId: string) {
@@ -181,20 +269,69 @@ export function HomeScreen() {
     );
   }
 
-  function openCheckout() {
+  async function openCheckout() {
     if (cartItems.length === 0) {
+      return;
+    }
+
+    setIsCheckingAvailability(true);
+    setAvailabilityMessage("");
+
+    try {
+      const freshAvailability = await refreshAvailability();
+      const problems = getAvailabilityProblems(
+        cartItems,
+        freshAvailability,
+        menu,
+      );
+
+      if (problems.length > 0) {
+        setAvailabilityMessage(formatAvailabilityProblems(problems));
+        setIsCheckingAvailability(false);
+        return;
+      }
+    } catch {
+      setAvailabilityMessage(
+        "Не удалось проверить наличие. Попробуйте ещё раз.",
+      );
+      setIsCheckingAvailability(false);
       return;
     }
 
     setIsCartOpen(false);
     setIsCheckoutOpen(true);
+    setIsCheckingAvailability(false);
   }
 
-  function confirmOrder(customer: {
+  async function confirmOrder(customer: {
     name: string;
     phone: string;
     comment?: string;
   }) {
+    setIsCheckingAvailability(true);
+    setAvailabilityMessage("");
+
+    try {
+      const freshAvailability = await refreshAvailability();
+      const problems = getAvailabilityProblems(
+        cartItems,
+        freshAvailability,
+        menu,
+      );
+
+      if (problems.length > 0) {
+        setAvailabilityMessage(formatAvailabilityProblems(problems));
+        setIsCheckingAvailability(false);
+        return;
+      }
+    } catch {
+      setAvailabilityMessage(
+        "Не удалось проверить наличие. Попробуйте ещё раз.",
+      );
+      setIsCheckingAvailability(false);
+      return;
+    }
+
     const order = createOrder({
       customerName: customer.name,
       phone: customer.phone,
@@ -222,6 +359,20 @@ export function HomeScreen() {
     setActiveSection("orders");
     setCartItems([]);
     setIsCheckoutOpen(false);
+    setIsCheckingAvailability(false);
+  }
+
+  function removeUnavailableItems() {
+    if (!availability) return;
+    setCartItems((items) =>
+      items.filter(
+        (item) =>
+          !getAvailabilityProblems([item], availability, menu).some(
+            (problem) => problem.unavailable,
+          ),
+      ),
+    );
+    setAvailabilityMessage("");
   }
 
   function returnToMenu() {
@@ -309,7 +460,10 @@ export function HomeScreen() {
                       <ProductCard
                         key={product.id}
                         product={product}
-                        onAdd={setSelectedProduct}
+                        onAdd={(nextProduct) => {
+                          setAvailabilityMessage("");
+                          setSelectedProduct(nextProduct);
+                        }}
                       />
                     ))
                   ) : (
@@ -390,10 +544,14 @@ export function HomeScreen() {
         <CartModal
           items={cartItems}
           total={cartTotal}
+          availability={availability}
+          availabilityMessage={availabilityMessage}
+          isCheckingAvailability={isCheckingAvailability}
           onClose={() => setIsCartOpen(false)}
           onIncrease={increaseQuantity}
           onDecrease={decreaseQuantity}
           onCheckout={openCheckout}
+          onRemoveUnavailable={removeUnavailableItems}
         />
       ) : null}
 
@@ -402,6 +560,8 @@ export function HomeScreen() {
           items={cartItems}
           total={cartTotal}
           itemsCount={cartCount}
+          availabilityMessage={availabilityMessage}
+          isCheckingAvailability={isCheckingAvailability}
           onBack={() => {
             setIsCheckoutOpen(false);
             setIsCartOpen(true);
@@ -415,6 +575,8 @@ export function HomeScreen() {
           key={selectedProduct.id}
           product={selectedProduct}
           menu={menu}
+          availabilityMessage={availabilityMessage}
+          isCheckingAvailability={isCheckingAvailability}
           onClose={() => setSelectedProduct(null)}
           onAdd={addConfiguredItem}
         />
@@ -609,6 +771,97 @@ function createCartItemId(productId: string, selection: MenuSelection) {
     variantId: selection.variantId ?? "",
     addonPairs,
   });
+}
+
+type AvailabilityProblem = {
+  id: string;
+  name: string;
+  unavailable: boolean;
+  balance: number | null;
+};
+
+function getAvailabilityProblems(
+  items: CartItem[],
+  availability: StorefrontAvailabilitySnapshot,
+  menu: Pick<MenuState, "menuItems" | "addonGroups">,
+) {
+  const requested = new Map<string, number>();
+
+  items.forEach((item) => {
+    incrementRequested(requested, item.product.id, item.quantity);
+    Object.values(item.selection.addonOptionIdsByGroupId)
+      .flat()
+      .forEach((optionId) =>
+        incrementRequested(requested, optionId, item.quantity),
+      );
+  });
+
+  return [...requested.entries()].flatMap<AvailabilityProblem>(
+    ([id, quantity]) => {
+      const itemAvailability = availability.items[id];
+
+      if (!itemAvailability) return [];
+
+      const unavailable = !itemAvailability.available;
+      const exceedsBalance =
+        itemAvailability.balance !== null &&
+        quantity > itemAvailability.balance;
+
+      if (!unavailable && !exceedsBalance) return [];
+
+      return [
+        {
+          id,
+          name: getAvailabilityItemName(id, menu),
+          unavailable,
+          balance: itemAvailability.balance,
+        },
+      ];
+    },
+  );
+}
+
+function incrementRequested(
+  requested: Map<string, number>,
+  id: string,
+  quantity: number,
+) {
+  requested.set(id, (requested.get(id) ?? 0) + quantity);
+}
+
+function getAvailabilityItemName(
+  id: string,
+  menu: Pick<MenuState, "menuItems" | "addonGroups">,
+) {
+  return (
+    menu.menuItems.find((item) => item.id === id)?.name ??
+    menu.addonGroups
+      .flatMap((group) => group.options)
+      .find((option) => option.id === id)?.name ??
+    "Позиция заказа"
+  );
+}
+
+function formatAvailabilityProblems(problems: AvailabilityProblem[]) {
+  const unavailable = problems
+    .filter((problem) => problem.unavailable)
+    .map((problem) => problem.name);
+  const limited = problems.filter(
+    (problem) => !problem.unavailable && problem.balance !== null,
+  );
+  const messages: string[] = [];
+
+  if (unavailable.length > 0) {
+    messages.push(`Нет в наличии: ${unavailable.join(", ")}.`);
+  }
+
+  limited.forEach((problem) => {
+    messages.push(
+      `${problem.name}: доступно только ${problem.balance?.toLocaleString("ru-RU")} шт.`,
+    );
+  });
+
+  return messages.join(" ");
 }
 
 function getCategoryIconSrc(categoryId: string, categoryName: string) {

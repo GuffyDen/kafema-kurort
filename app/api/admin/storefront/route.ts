@@ -1,11 +1,11 @@
 import { storefrontErrorResponse } from "@/lib/storefrontApiResponse";
-import { getStorefront } from "@/lib/storefrontService";
+import { getAdminStorefront } from "@/lib/storefrontAdminService";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
-    return Response.json(await getStorefront(), {
+    return Response.json(await getAdminStorefront(), {
       headers: { "Cache-Control": "no-store" },
     });
   } catch (error) {
