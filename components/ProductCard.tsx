@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import {
   getMenuItemPrice,
   getMenuItemSummary,
@@ -39,9 +40,13 @@ export function ProductCard({ product, onAdd }: ProductCardProps) {
             }}
           />
         ) : (
-          <div className="flex h-full items-center justify-center text-sm font-bold text-[var(--color-text-muted)]">
-            Фото скоро
-          </div>
+          <Image
+            alt="Фотография товара скоро появится"
+            className="scale-[1.05] object-cover object-[center_50%]"
+            fill
+            sizes="(max-width: 448px) 44vw, 200px"
+            src="/images/product-placeholder-cat.png"
+          />
         )}
         <div className="absolute inset-x-3 top-3 flex flex-col items-start gap-1.5">
           {!canAdd ? (
