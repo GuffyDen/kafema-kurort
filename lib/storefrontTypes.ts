@@ -1,6 +1,7 @@
 import type { MenuState } from "@/lib/menuStore";
 
 export type StorefrontBadge = "none" | "hit" | "new";
+export type StorefrontMarketingBadge = Exclude<StorefrontBadge, "none">;
 
 export type StorefrontProductOverride = {
   displayName?: string;
@@ -8,6 +9,8 @@ export type StorefrontProductOverride = {
   displayPrice?: number;
   displayImage?: string;
   isVisible?: boolean;
+  badges?: StorefrontMarketingBadge[];
+  /** Legacy single-value field kept for existing stored overrides. */
   badge?: StorefrontBadge;
   sortOrder?: number;
   customCategoryId?: string;
@@ -74,7 +77,7 @@ export type StorefrontProduct = {
     price: number | null;
     image: string | null;
     isVisible: boolean;
-    badge: StorefrontBadge;
+    badges: StorefrontMarketingBadge[];
     sortOrder: number;
     categoryId: string;
   };

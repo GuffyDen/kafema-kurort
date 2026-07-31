@@ -15,6 +15,22 @@ export function parseProductOverridePatch(value: unknown) {
   copyNullableNumber(body, patch, "sortOrder");
   copyNullableString(body, patch, "customCategoryId");
 
+  if ("badges" in body) {
+    if (body.badges === null) {
+      patch.badges = null;
+    } else {
+      if (
+        !Array.isArray(body.badges) ||
+        body.badges.some((badge) => badge !== "hit" && badge !== "new")
+      ) {
+        throw new Error("Некорректное значение badges");
+      }
+
+      patch.badges = [...new Set(body.badges)];
+    }
+  }
+
+  // Accept the legacy field so old clients and stored overrides remain valid.
   if ("badge" in body) {
     if (
       body.badge !== null &&

@@ -272,7 +272,7 @@ function normalizeProduct({
       price: override.displayPrice ?? source.price,
       image: override.displayImage ?? source.imageUrl,
       isVisible: override.isVisible ?? product.isHidden !== true,
-      badge: override.badge ?? "none",
+      badges: getProductBadges(override),
       sortOrder: override.sortOrder ?? (productIndex + 1) * 10,
       categoryId: override.customCategoryId ?? categoryId,
     },
@@ -431,6 +431,7 @@ function createMenuState(categories: StorefrontCategory[]): MenuState {
         basePrice,
         isActive: product.display.isVisible,
         inStock: true,
+        badges: product.display.badges,
         sortOrder: product.display.sortOrder,
         variants:
           visibleSizes.length > 1
@@ -448,6 +449,20 @@ function createMenuState(categories: StorefrontCategory[]): MenuState {
       };
     }),
   };
+}
+
+function getProductBadges(
+  override: StorefrontProduct["overrides"],
+): StorefrontProduct["display"]["badges"] {
+  if (Array.isArray(override.badges)) {
+    return [...new Set(override.badges)].filter(
+      (badge) => badge === "hit" || badge === "new",
+    );
+  }
+
+  return override.badge === "hit" || override.badge === "new"
+    ? [override.badge]
+    : [];
 }
 
 function classifyProduct(product: StorefrontProduct): MenuItemKind {

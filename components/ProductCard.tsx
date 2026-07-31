@@ -43,16 +43,30 @@ export function ProductCard({ product, onAdd }: ProductCardProps) {
             Фото скоро
           </div>
         )}
-        <span
-          aria-hidden={canAdd}
-          className={`absolute left-3 top-3 rounded-full bg-[#FFF9F0]/92 px-3 py-1 text-xs font-bold text-[var(--color-text-muted)] shadow-sm backdrop-blur transition-[opacity,transform] duration-500 ease-out ${
-            canAdd
-              ? "pointer-events-none -translate-y-1 opacity-0"
-              : "translate-y-0 opacity-100"
-          }`}
-        >
-          Нет в наличии
-        </span>
+        <div className="absolute left-3 top-3 flex max-w-[calc(100%-1.5rem)] flex-wrap gap-1.5">
+          <span
+            aria-hidden={canAdd}
+            className={`rounded-full bg-[#FFF9F0]/95 px-3 py-1 text-xs font-black text-[#8F2F24] shadow-sm backdrop-blur transition-[opacity,transform] duration-500 ease-out ${
+              canAdd
+                ? "pointer-events-none -translate-y-1 opacity-0"
+                : "translate-y-0 opacity-100"
+            }`}
+          >
+            Нет в наличии
+          </span>
+          {product.badges.map((badge) => (
+            <span
+              className={`rounded-full px-3 py-1 text-xs font-black shadow-sm backdrop-blur ${
+                badge === "hit"
+                  ? "bg-[#E30613]/92 text-white"
+                  : "bg-[#FFF9F0]/95 text-[#9A642B]"
+              }`}
+              key={badge}
+            >
+              {badge === "hit" ? "Хит" : "Новинка"}
+            </span>
+          ))}
+        </div>
       </div>
 
       <div className="p-4">

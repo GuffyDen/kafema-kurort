@@ -970,7 +970,7 @@ function ProductEditor({
     String(product.overrides.sortOrder ?? product.display.sortOrder),
   );
   const [isVisible, setIsVisible] = useState(product.display.isVisible);
-  const [badge, setBadge] = useState(product.display.badge);
+  const [badges, setBadges] = useState(product.display.badges);
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState("");
 
@@ -985,7 +985,8 @@ function ProductEditor({
         displayImage: image.trim() || null,
         sortOrder: Number(sortOrder),
         isVisible,
-        badge,
+        badges,
+        badge: null,
       });
       setMessage("Изменения сохранены");
     } catch (error) {
@@ -1022,6 +1023,15 @@ function ProductEditor({
   }
 
   const displayImage = image.trim() || product.source.imageUrl;
+
+  function toggleBadge(badge: "hit" | "new") {
+    setBadges((current) =>
+      current.includes(badge)
+        ? current.filter((currentBadge) => currentBadge !== badge)
+        : [...current, badge],
+    );
+    setMessage("");
+  }
 
   return (
     <article className="rounded-[24px] border border-[#E9E1D7] bg-white p-4 shadow-[0_12px_32px_rgba(36,24,16,0.06)] [contain-intrinsic-size:760px] [content-visibility:auto]">
@@ -1135,14 +1145,16 @@ function ProductEditor({
                 onClick={() => setIsVisible((current) => !current)}
               />
               <Toggle
-                active={badge === "hit"}
+                active={badges.includes("hit")}
+                disabled={isSaving}
                 label="Хит"
-                onClick={() => setBadge((current) => current === "hit" ? "none" : "hit")}
+                onClick={() => toggleBadge("hit")}
               />
               <Toggle
-                active={badge === "new"}
+                active={badges.includes("new")}
+                disabled={isSaving}
                 label="Новинка"
-                onClick={() => setBadge((current) => current === "new" ? "none" : "new")}
+                onClick={() => toggleBadge("new")}
               />
             </div>
           </div>
@@ -1427,20 +1439,24 @@ function Field({
 
 function Toggle({
   active,
+  disabled = false,
   label,
   onClick,
 }: {
   active: boolean;
+  disabled?: boolean;
   label: string;
   onClick: () => void;
 }) {
   return (
     <button
+      aria-pressed={active}
       className={`min-h-11 rounded-2xl border px-3 text-xs font-black ${
         active
           ? "border-[#E30613] bg-[#FFE7E7] text-[#B00020]"
           : "border-[#E9E1D7] bg-white text-[#777777]"
-      }`}
+      } disabled:cursor-wait disabled:opacity-60`}
+      disabled={disabled}
       onClick={onClick}
       type="button"
     >

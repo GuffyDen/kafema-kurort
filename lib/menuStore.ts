@@ -11,6 +11,8 @@ export type MenuItemKind =
   | "certificate"
   | "other";
 
+export type MenuItemBadge = "hit" | "new";
+
 export type AddonSelectionType = "single" | "multiple";
 
 export type MenuCategory = {
@@ -84,6 +86,7 @@ export type MenuItem = {
   basePrice: number;
   isActive: boolean;
   inStock: boolean;
+  badges: MenuItemBadge[];
   sortOrder: number;
   variants: MenuItemVariant[];
   addonGroupIds: string[];
@@ -96,7 +99,12 @@ export type MenuState = {
   menuItems: MenuItem[];
 };
 
-export type MenuItemInput = Omit<MenuItem, "id" | "variants" | "addonGroupIds">;
+export type MenuItemInput = Omit<
+  MenuItem,
+  "id" | "variants" | "addonGroupIds" | "badges"
+> & {
+  badges?: MenuItemBadge[];
+};
 
 type CategoryInput = {
   name: string;
@@ -124,6 +132,7 @@ type LegacyProduct = {
   kind?: MenuItemKind;
   isActive: boolean;
   inStock: boolean;
+  badges?: MenuItemBadge[];
   sortOrder?: number;
   variants?: MenuItemVariant[];
   modifierGroups?: Array<Omit<AddonGroup, "icon" | "isActive">>;
@@ -353,6 +362,12 @@ function normalizeMenuItem(item: MenuItem | LegacyProduct, index: number, addonG
     basePrice: "basePrice" in item && typeof item.basePrice === "number" ? item.basePrice : legacyPrice ?? 0,
     isActive: item.isActive ?? true,
     inStock: item.inStock ?? true,
+    badges:
+      "badges" in item && Array.isArray(item.badges)
+        ? item.badges.filter(
+            (badge): badge is MenuItemBadge => badge === "hit" || badge === "new",
+          )
+        : [],
     sortOrder: "sortOrder" in item && typeof item.sortOrder === "number" ? item.sortOrder : (index + 1) * 10,
     variants:
       normalizedVariants.length > 1 || !defaultItem
