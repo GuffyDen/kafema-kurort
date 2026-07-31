@@ -110,15 +110,21 @@ export function ProductConfigurator({
 
         <div className="flex-1 space-y-5 overflow-y-auto px-5 py-5">
           <div className="relative aspect-[1.35] overflow-hidden rounded-[28px] bg-[#EFE2D1] shadow-[0_14px_34px_rgba(64,39,23,0.08)]">
-            <img
-              src={currentProduct.imageSrc}
-              alt={currentProduct.name}
-              className="h-full w-full object-cover"
-              onError={(event) => {
-                if (event.currentTarget.src.endsWith(fallbackImageSrc)) return;
-                event.currentTarget.src = fallbackImageSrc;
-              }}
-            />
+            {currentProduct.imageSrc ? (
+              <img
+                src={currentProduct.imageSrc}
+                alt={currentProduct.name}
+                className="h-full w-full object-cover"
+                onError={(event) => {
+                  if (event.currentTarget.src.endsWith(fallbackImageSrc)) return;
+                  event.currentTarget.src = fallbackImageSrc;
+                }}
+              />
+            ) : (
+              <div className="flex h-full items-center justify-center text-sm font-bold text-[var(--color-text-muted)]">
+                Фото скоро
+              </div>
+            )}
           </div>
 
           {variants.length > 0 ? (

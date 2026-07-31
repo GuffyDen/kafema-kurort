@@ -116,6 +116,21 @@ export type IikoExternalMenuProductDiagnostic = {
   price: number | null;
 };
 
+export type IikoExternalMenuSource = {
+  organization: IikoOrganization;
+  terminalGroup: {
+    id: string;
+    name: string | null;
+  };
+  externalMenu: {
+    id: string;
+    name: string | null;
+  };
+  priceCategoriesCount: number;
+  menu: Record<string, unknown>;
+  syncedAt: string;
+};
+
 type IikoCheckError = {
   step: string;
   endpoint?: string;
@@ -233,6 +248,102 @@ export async function checkIikoConnectionReal(
   }
 
   return check.result;
+}
+
+export async function fetchIikoExternalMenuSource(): Promise<IikoExternalMenuSource> {
+  const config = createIikoConfig();
+  const credentialError = getMissingCredentialErrors(config)[0];
+
+  if (credentialError) {
+    throw new Error(credentialError.message);
+  }
+
+  const token = await getAccessToken(config);
+  const organizations = await getOrganizations(config, token);
+
+  if (organizations.length === 0) {
+    throw new Error("iiko не вернула ни одной организации");
+  }
+
+  const terminalGroups = await getTerminalGroups(
+    config,
+    token,
+    organizations,
+  );
+  const terminalGroup = terminalGroups.find(
+    (group) => group.id === config.terminalGroupId,
+  );
+
+  if (!terminalGroup?.id) {
+    throw new Error(
+      `TerminalGroupId ${config.terminalGroupId} не найден среди доступных terminal groups`,
+    );
+  }
+
+  const organization = selectOrganizationByTerminalGroup(
+    organizations,
+    terminalGroup,
+  );
+
+  if (!organization) {
+    throw new Error(
+      `Не удалось определить организацию для terminalGroupId ${config.terminalGroupId}`,
+    );
+  }
+
+  const menuList = await requestIiko<IikoExternalMenuListResponse>(
+    config,
+    "/api/2/menu",
+    undefined,
+    token,
+  );
+  const selectedMenu = (menuList.externalMenus ?? [])
+    .map((menu) => ({
+      id: getStringValue(menu.id, menu.externalMenuId, menu.menuId),
+      name: getStringValue(menu.name),
+    }))
+    .find((menu) => Boolean(menu.id));
+
+  if (!selectedMenu?.id) {
+    throw new Error("Внешнее меню не найдено.");
+  }
+
+  const priceCategories = menuList.priceCategories ?? [];
+  const priceCategoryId = priceCategories
+    .map((category) => getStringValue(category.id))
+    .find((id) => id && id !== "00000000-0000-0000-0000-000000000000");
+  const requestBody: Record<string, unknown> = {
+    externalMenuId: selectedMenu.id,
+    organizationIds: [organization.id],
+    language: "ru",
+    version: 2,
+  };
+
+  if (priceCategoryId) {
+    requestBody.priceCategoryId = priceCategoryId;
+  }
+
+  const menu = await requestIiko<Record<string, unknown>>(
+    config,
+    "/api/2/menu/by_id",
+    requestBody,
+    token,
+  );
+
+  return {
+    organization,
+    terminalGroup: {
+      id: String(terminalGroup.id),
+      name: terminalGroup.name ?? null,
+    },
+    externalMenu: {
+      id: selectedMenu.id,
+      name: selectedMenu.name,
+    },
+    priceCategoriesCount: priceCategories.length,
+    menu,
+    syncedAt: new Date().toISOString(),
+  };
 }
 
 export async function checkIikoConnectionReadOnly(
@@ -812,7 +923,7 @@ async function requestIiko<TResponse>(
   return (parsedBody ?? {}) as TResponse;
 }
 
-class IikoHttpError extends Error {
+export class IikoHttpError extends Error {
   constructor(
     readonly status: number,
     readonly endpoint: string,

@@ -28,15 +28,21 @@ export function ProductCard({ product, onAdd }: ProductCardProps) {
       }`}
     >
       <div className="relative aspect-[1.08] overflow-hidden bg-[#EFE2D1]">
-        <img
-          src={product.imageSrc}
-          alt={product.name}
-          className="h-full w-full object-cover"
-          onError={(event) => {
-            if (event.currentTarget.src.endsWith(fallbackImageSrc)) return;
-            event.currentTarget.src = fallbackImageSrc;
-          }}
-        />
+        {product.imageSrc ? (
+          <img
+            src={product.imageSrc}
+            alt={product.name}
+            className="h-full w-full object-cover"
+            onError={(event) => {
+              if (event.currentTarget.src.endsWith(fallbackImageSrc)) return;
+              event.currentTarget.src = fallbackImageSrc;
+            }}
+          />
+        ) : (
+          <div className="flex h-full items-center justify-center text-sm font-bold text-[var(--color-text-muted)]">
+            Фото скоро
+          </div>
+        )}
         {!canAdd ? (
           <span className="absolute left-3 top-3 rounded-full bg-[#FFF9F0]/92 px-3 py-1 text-xs font-bold text-[var(--color-text-muted)] shadow-sm backdrop-blur">
             Нет в наличии

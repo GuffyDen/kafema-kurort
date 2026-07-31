@@ -17,17 +17,17 @@ import type { Product } from "@/components/ProductCard";
 import { SearchBar } from "@/components/SearchBar";
 import {
   getMenuItemWorkstationType,
-  isDemoMenuItem,
   isMenuItemOrderable,
-  useMenu,
   type ConfiguredMenuItem,
   type MenuSelection,
 } from "@/lib/menuStore";
 import { createOrder, useOrder, useOrders } from "@/lib/orderStore";
 import type { Order } from "@/lib/orderStore";
+import { useStorefrontMenu } from "@/lib/useStorefrontMenu";
 
 export function HomeScreen() {
-  const menu = useMenu();
+  const { menu, isLoading: isMenuLoading, error: menuError } =
+    useStorefrontMenu();
   const [activeSection, setActiveSection] = useState<BottomNavigationItem>("menu");
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
@@ -84,7 +84,7 @@ export function HomeScreen() {
   const products = useMemo(
     () =>
       menu.menuItems.filter(
-        (product) => isMenuItemOrderable(menu, product) && !isDemoMenuItem(product),
+        (product) => isMenuItemOrderable(menu, product),
       ),
     [menu],
   );
@@ -300,7 +300,11 @@ export function HomeScreen() {
 
               <section className="mt-6">
                 <div className="grid grid-cols-2 gap-4">
-                  {visibleProducts.length > 0 ? (
+                  {isMenuLoading ? (
+                    <div className="col-span-2">
+                      <EmptyState text="Загружаем меню..." />
+                    </div>
+                  ) : visibleProducts.length > 0 ? (
                     visibleProducts.map((product) => (
                       <ProductCard
                         key={product.id}
@@ -312,7 +316,9 @@ export function HomeScreen() {
                     <div className="col-span-2">
                       <EmptyState
                         text={
-                          normalizedSearchQuery
+                          menuError
+                            ? "Не удалось загрузить меню. Попробуйте обновить страницу."
+                            : normalizedSearchQuery
                             ? "Ничего не найдено"
                             : "Пока в меню нет доступных товаров."
                         }

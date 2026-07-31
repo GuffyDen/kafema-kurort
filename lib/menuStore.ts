@@ -139,175 +139,21 @@ const storageKey = "kafema-menu-v3";
 const legacyStorageKeys = ["kafema-menu-v2", "kafema-menu-v1"];
 const channelName = "kafema-menu";
 
-const productImageById: Record<string, string> = {
-  americano: "/products/americano.jpg",
-  cappuccino: "/products/cappuccino.jpg",
-  cheesecake: "/products/cheesecake.jpg",
-  croissant: "/products/croissant.jpg",
-  latte: "/products/latte.jpg",
-};
-
 export const fallbackImageSrc = "/products/cappuccino.jpg";
 
 export const defaultMenuState: MenuState = {
-  categories: [
-    { id: "coffee", name: "Кофе", icon: "☕", isActive: true, sortOrder: 10 },
-    { id: "bakery", name: "Выпечка", icon: "🥐", isActive: true, sortOrder: 20 },
-    { id: "snacks", name: "Перекусы", icon: "🥪", isActive: true, sortOrder: 30 },
-    { id: "desserts", name: "Десерты", icon: "🍰", isActive: true, sortOrder: 40 },
-    { id: "cold-drinks", name: "Холодные напитки", icon: "🥤", isActive: true, sortOrder: 50 },
-  ],
+  categories: [],
   workingZones: [
-    { id: "bar", name: "Бар", icon: "☕", isActive: true, sortOrder: 10 },
-    { id: "kitchen", name: "Кухня", icon: "🍳", isActive: true, sortOrder: 20 },
-    { id: "showcase", name: "Витрина", icon: "🥐", isActive: true, sortOrder: 30 },
-    { id: "cold", name: "Холодный цех", icon: "🥤", isActive: true, sortOrder: 40 },
+    { id: "bar", name: "Бар", icon: "", isActive: true, sortOrder: 10 },
   ],
-  addonGroups: [
-    {
-      id: "milk",
-      name: "Молоко",
-      icon: "🥛",
-      required: true,
-      selectionType: "single",
-      sortOrder: 10,
-      isActive: true,
-      options: [
-        { id: "regular-milk", name: "Обычное", priceDelta: 0, sortOrder: 10, isActive: true },
-        { id: "oat-milk", name: "Овсяное", priceDelta: 60, sortOrder: 20, isActive: true },
-        { id: "coconut-milk", name: "Кокосовое", priceDelta: 60, sortOrder: 30, isActive: true },
-        { id: "almond-milk", name: "Миндальное", priceDelta: 80, sortOrder: 40, isActive: true },
-      ],
-    },
-    {
-      id: "syrups",
-      name: "Сиропы",
-      icon: "🍯",
-      required: false,
-      selectionType: "single",
-      sortOrder: 20,
-      isActive: true,
-      options: [
-        { id: "vanilla", name: "Ваниль", priceDelta: 40, sortOrder: 10, isActive: true },
-        { id: "caramel", name: "Карамель", priceDelta: 40, sortOrder: 20, isActive: true },
-        { id: "lavender", name: "Лаванда", priceDelta: 40, sortOrder: 30, isActive: true },
-      ],
-    },
-    {
-      id: "sugar",
-      name: "Сахар",
-      icon: "🍬",
-      required: false,
-      selectionType: "single",
-      sortOrder: 30,
-      isActive: true,
-      options: [
-        { id: "no-sugar", name: "Без сахара", priceDelta: 0, sortOrder: 10, isActive: true },
-        { id: "one-spoon", name: "1 ложка", priceDelta: 0, sortOrder: 20, isActive: true },
-        { id: "two-spoons", name: "2 ложки", priceDelta: 0, sortOrder: 30, isActive: true },
-      ],
-    },
-    {
-      id: "warm",
-      name: "Подача",
-      icon: "🔥",
-      required: false,
-      selectionType: "single",
-      sortOrder: 40,
-      isActive: true,
-      options: [
-        { id: "not-warmed", name: "Не греть", priceDelta: 0, sortOrder: 10, isActive: true },
-        { id: "warmed", name: "Подогреть", priceDelta: 0, sortOrder: 20, isActive: true },
-      ],
-    },
-  ],
-  menuItems: [
-    createDefaultMenuItem({
-      id: "cappuccino",
-      name: "Капучино",
-      description: "Кофе с молочной пеной",
-      categoryId: "coffee",
-      workingZoneId: "bar",
-      kind: "drink",
-      basePrice: 230,
-      imageSrc: productImageById.cappuccino,
-      sortOrder: 10,
-      variants: [
-        { id: "cap-300", name: "300 мл", priceDelta: 0, sortOrder: 10, isActive: true },
-        { id: "cap-400", name: "400 мл", priceDelta: 50, sortOrder: 20, isActive: true },
-      ],
-      addonGroupIds: ["milk", "syrups", "sugar"],
-    }),
-    createDefaultMenuItem({
-      id: "latte",
-      name: "Латте",
-      description: "Мягкий молочный кофе",
-      categoryId: "coffee",
-      workingZoneId: "bar",
-      kind: "drink",
-      basePrice: 250,
-      imageSrc: productImageById.latte,
-      sortOrder: 20,
-      variants: [{ id: "latte-350", name: "350 мл", priceDelta: 0, sortOrder: 10, isActive: true }],
-      addonGroupIds: ["milk", "syrups", "sugar"],
-    }),
-    createDefaultMenuItem({
-      id: "americano",
-      name: "Американо",
-      description: "Черный кофе",
-      categoryId: "coffee",
-      workingZoneId: "bar",
-      kind: "drink",
-      basePrice: 190,
-      imageSrc: productImageById.americano,
-      sortOrder: 30,
-      addonGroupIds: ["sugar"],
-    }),
-    createDefaultMenuItem({
-      id: "croissant",
-      name: "Круассан",
-      description: "Свежая выпечка",
-      categoryId: "bakery",
-      workingZoneId: "showcase",
-      kind: "food",
-      basePrice: 210,
-      imageSrc: productImageById.croissant,
-      sortOrder: 40,
-      addonGroupIds: ["warm"],
-    }),
-    createDefaultMenuItem({
-      id: "cheesecake",
-      name: "Чизкейк",
-      description: "Десерт из витрины",
-      categoryId: "desserts",
-      workingZoneId: "showcase",
-      kind: "dessert",
-      basePrice: 290,
-      imageSrc: productImageById.cheesecake,
-      sortOrder: 50,
-      addonGroupIds: [],
-    }),
-  ],
+  addonGroups: [],
+  menuItems: [],
 };
 
 let menuState = defaultMenuState;
 let hydrated = false;
 let channel: BroadcastChannel | null = null;
 const listeners = new Set<() => void>();
-
-function createDefaultMenuItem(
-  item: Omit<MenuItem, "isActive" | "inStock" | "variants" | "addonGroupIds"> &
-    Partial<Pick<MenuItem, "variants" | "addonGroupIds">>,
-): MenuItem {
-  return {
-    ...item,
-    imageSrc: item.imageSrc || fallbackImageSrc,
-    isActive: true,
-    inStock: true,
-    variants: item.variants ?? [],
-    addonGroupIds: item.addonGroupIds ?? [],
-  };
-}
 
 function canUseBrowserStorage() {
   return typeof window !== "undefined" && typeof localStorage !== "undefined";
@@ -496,7 +342,6 @@ function normalizeMenuItem(item: MenuItem | LegacyProduct, index: number, addonG
     name: item.name,
     description: "description" in item && item.description ? item.description : legacyVolume || "",
     imageSrc: normalizeMenuItemImageSrc(
-      item.id,
       item.imageSrc || legacyImage || defaultItem?.imageSrc || fallbackImageSrc,
     ),
     categoryId: item.categoryId,
@@ -517,9 +362,9 @@ function normalizeMenuItem(item: MenuItem | LegacyProduct, index: number, addonG
   };
 }
 
-function normalizeMenuItemImageSrc(itemId: string, imageSrc: string) {
+function normalizeMenuItemImageSrc(imageSrc: string) {
   if (!imageSrc || imageSrc.includes("images.unsplash.com")) {
-    return productImageById[itemId] ?? fallbackImageSrc;
+    return fallbackImageSrc;
   }
 
   return imageSrc;

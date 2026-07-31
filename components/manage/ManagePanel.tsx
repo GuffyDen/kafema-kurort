@@ -12,21 +12,9 @@ import {
   saveBaristaSettings,
   type BaristaSettings,
 } from "@/lib/baristaSettings";
-import { useMenu, type MenuItem } from "@/lib/menuStore";
+import { StorefrontSection } from "@/components/manage/StorefrontSection";
 
 type AdminSection = "connections" | "storefront" | "barista" | "qr" | "settings";
-
-type StorefrontOverlay = {
-  displayName: string;
-  description: string;
-  imageSrc: string;
-  visible: boolean;
-  badgeHit: boolean;
-  badgeNew: boolean;
-  sortOrder: number;
-};
-
-type StorefrontOverlayState = Record<string, StorefrontOverlay>;
 
 type GeneralSettings = {
   coffeehouseName: string;
@@ -135,10 +123,7 @@ const navItems: Array<{ id: AdminSection; label: string; hint: string }> = [
   { id: "settings", label: "Настройки", hint: "Бренд и контакты" },
 ];
 
-const overlayStorageKey = "kafema-storefront-overlay-v1";
-
 export function ManagePanel() {
-  const menu = useMenu();
   const [activeSection, setActiveSection] = useState<AdminSection>("connections");
   const [isCheckingIiko, setIsCheckingIiko] = useState(false);
   const [iikoResult, setIikoResult] = useState<IikoConnectionResult | null>(null);
@@ -148,9 +133,6 @@ export function ManagePanel() {
   const [webhookStatus, setWebhookStatus] = useState<IikoWebhookStatus | null>(null);
   const [webhookCheckedAt, setWebhookCheckedAt] = useState<Date | null>(null);
   const [showEnvModeWarning, setShowEnvModeWarning] = useState(false);
-  const [overlays, setOverlays] = useState<StorefrontOverlayState>(() =>
-    getStoredOverlays(),
-  );
   const [baristaSettings, setBaristaSettingsState] = useState<BaristaSettings>(() =>
     getStoredBaristaSettings(),
   );
@@ -285,21 +267,6 @@ export function ManagePanel() {
     }
   }
 
-  function updateOverlay(item: MenuItem, patch: Partial<StorefrontOverlay>) {
-    setOverlays((current) => {
-      const next = {
-        ...current,
-        [item.id]: {
-          ...createDefaultOverlay(item),
-          ...current[item.id],
-          ...patch,
-        },
-      };
-      localStorage.setItem(overlayStorageKey, JSON.stringify(next));
-      return next;
-    });
-  }
-
   function setBaristaSettings(settings: BaristaSettings) {
     setBaristaSettingsState(settings);
     saveBaristaSettings(settings);
@@ -383,13 +350,7 @@ export function ManagePanel() {
           ) : null}
 
           {activeSection === "storefront" ? (
-            <StorefrontSection
-              menuItems={menu.menuItems}
-              categories={menu.categories}
-              addonGroups={menu.addonGroups}
-              overlays={overlays}
-              updateOverlay={updateOverlay}
-            />
+            <StorefrontSection />
           ) : null}
 
           {activeSection === "barista" ? (
@@ -1000,116 +961,6 @@ function formatWebhookCheckTime(value: Date | null) {
   }).format(value);
 }
 
-function StorefrontSection({
-  menuItems,
-  categories,
-  addonGroups,
-  overlays,
-  updateOverlay,
-}: {
-  menuItems: MenuItem[];
-  categories: Array<{ id: string; name: string }>;
-  addonGroups: Array<{ id: string; name: string }>;
-  overlays: StorefrontOverlayState;
-  updateOverlay: (item: MenuItem, patch: Partial<StorefrontOverlay>) => void;
-}) {
-  return (
-    <div className="space-y-4">
-      <Notice>
-        Товары приходят из iiko. В Kafema настраивается только витринный слой:
-        фото, красивое название, описание, видимость, бейджи и сортировка.
-      </Notice>
-
-      <div className="grid gap-4">
-        {[...menuItems].sort((a, b) => a.sortOrder - b.sortOrder).map((item) => {
-          const overlay = { ...createDefaultOverlay(item), ...overlays[item.id] };
-          const category = categories.find((entry) => entry.id === item.categoryId);
-          const modifierIds = item.addonGroupIds
-            .map((id) => addonGroups.find((group) => group.id === id)?.id ?? id)
-            .map((id) => `iiko-modifier-${id}`);
-
-          return (
-            <Card key={item.id}>
-              <div className="grid gap-5 xl:grid-cols-[160px_1fr]">
-                <div>
-                  <div className="aspect-square overflow-hidden rounded-3xl bg-[#F7F7F7]">
-                    <img
-                      alt={overlay.displayName}
-                      className="h-full w-full object-cover"
-                      src={overlay.imageSrc}
-                    />
-                  </div>
-                </div>
-
-                <div className="grid gap-4 lg:grid-cols-2">
-                  <TextField
-                    label="Название для сайта"
-                    value={overlay.displayName}
-                    onChange={(displayName) => updateOverlay(item, { displayName })}
-                  />
-                  <TextField
-                    label="Фото"
-                    value={overlay.imageSrc}
-                    onChange={(imageSrc) => updateOverlay(item, { imageSrc })}
-                  />
-                  <TextArea
-                    label="Описание"
-                    value={overlay.description}
-                    onChange={(description) => updateOverlay(item, { description })}
-                  />
-                  <div className="space-y-3">
-                    <TextField
-                      label="Сортировка"
-                      value={String(overlay.sortOrder)}
-                      onChange={(sortOrder) =>
-                        updateOverlay(item, {
-                          sortOrder: Number(sortOrder) || item.sortOrder,
-                        })
-                      }
-                    />
-                    <div className="grid grid-cols-3 gap-2">
-                      <Toggle
-                        active={overlay.visible}
-                        label={overlay.visible ? "Показывать" : "Скрыто"}
-                        onClick={() => updateOverlay(item, { visible: !overlay.visible })}
-                      />
-                      <Toggle
-                        active={overlay.badgeHit}
-                        label="Хит"
-                        onClick={() => updateOverlay(item, { badgeHit: !overlay.badgeHit })}
-                      />
-                      <Toggle
-                        active={overlay.badgeNew}
-                        label="Новинка"
-                        onClick={() => updateOverlay(item, { badgeNew: !overlay.badgeNew })}
-                      />
-                    </div>
-                  </div>
-
-                  <details className="lg:col-span-2 rounded-3xl bg-[#F7F7F7] p-4">
-                    <summary className="cursor-pointer text-sm font-black text-[#777777]">
-                      Техническая информация
-                    </summary>
-                    <div className="mt-4 grid gap-3 md:grid-cols-3">
-                      <Info label="iikoProductId" value={getIikoProductId(item)} />
-                      <Info label="iikoCategoryId" value={getIikoCategoryId(item)} />
-                      <Info
-                        label="iikoModifierId"
-                        value={modifierIds.length ? modifierIds.join(", ") : "Нет"}
-                      />
-                      <Info label="Категория из iiko" value={category?.name ?? "Не найдена"} />
-                    </div>
-                  </details>
-                </div>
-              </div>
-            </Card>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
 function BaristaSection({
   settings,
   setSettings,
@@ -1249,14 +1100,6 @@ function Card({ children }: { children: ReactNode }) {
     <section className="rounded-[32px] border border-[#E6E6E6] bg-white p-5 shadow-[0_18px_44px_rgba(26,26,26,0.05)]">
       {children}
     </section>
-  );
-}
-
-function Notice({ children }: { children: ReactNode }) {
-  return (
-    <div className="rounded-[28px] border border-[#E6E6E6] bg-white p-5 text-sm font-bold leading-6 text-[#777777]">
-      {children}
-    </div>
   );
 }
 
@@ -1428,42 +1271,6 @@ function Info({ label, value }: { label: string; value: string }) {
   );
 }
 
-function createDefaultOverlay(item: MenuItem): StorefrontOverlay {
-  return {
-    displayName: item.name,
-    description: item.description,
-    imageSrc: item.imageSrc,
-    visible: item.isActive,
-    badgeHit: false,
-    badgeNew: false,
-    sortOrder: item.sortOrder,
-  };
-}
-
-function getStoredOverlays() {
-  if (typeof window === "undefined") return {};
-
-  const savedOverlay = localStorage.getItem(overlayStorageKey);
-
-  if (!savedOverlay) return {};
-
-  try {
-    return JSON.parse(savedOverlay) as StorefrontOverlayState;
-  } catch {
-    return {};
-  }
-}
-
-function getIikoProductId(item: MenuItem) {
-  return item.id.startsWith("iiko-") ? item.id : `mock-iiko-product-${item.id}`;
-}
-
-function getIikoCategoryId(item: MenuItem) {
-  return item.categoryId.startsWith("iiko-")
-    ? item.categoryId
-    : `mock-iiko-category-${item.categoryId}`;
-}
-
 function getPageTitle(section: AdminSection) {
   if (section === "connections") return "Интеграции";
   if (section === "storefront") return "Редактор витрины";
@@ -1477,7 +1284,7 @@ function getPageDescription(section: AdminSection) {
     return "iiko Cloud API, iiko Webhook, ЮKassa и платформа Tablo в одном месте.";
   }
   if (section === "storefront") {
-    return "Настройка красивого слоя поверх товаров, синхронизированных из iiko. Цены, категории и модификаторы не редактируются вручную.";
+    return "Настройка отображения товаров, синхронизированных из iiko. Изменения Tablo не отправляются обратно в iiko.";
   }
   if (section === "barista") {
     return "Настройки рабочего места бариста без вмешательства в меню и учетные данные.";
