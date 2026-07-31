@@ -43,29 +43,28 @@ export function ProductCard({ product, onAdd }: ProductCardProps) {
             Фото скоро
           </div>
         )}
-        <div className="absolute left-3 top-3 flex max-w-[calc(100%-1.5rem)] flex-wrap gap-1.5">
-          <span
-            aria-hidden={canAdd}
-            className={`rounded-full bg-[#FFF9F0]/95 px-3 py-1 text-xs font-black text-[#8F2F24] shadow-sm backdrop-blur transition-[opacity,transform] duration-500 ease-out ${
-              canAdd
-                ? "pointer-events-none -translate-y-1 opacity-0"
-                : "translate-y-0 opacity-100"
-            }`}
-          >
-            Нет в наличии
-          </span>
-          {product.badges.map((badge) => (
-            <span
-              className={`rounded-full px-3 py-1 text-xs font-black shadow-sm backdrop-blur ${
-                badge === "hit"
-                  ? "bg-[#E30613]/92 text-white"
-                  : "bg-[#FFF9F0]/95 text-[#9A642B]"
-              }`}
-              key={badge}
-            >
-              {badge === "hit" ? "Хит" : "Новинка"}
+        <div className="absolute inset-x-3 top-3 flex flex-col items-start gap-1.5">
+          {!canAdd ? (
+            <span className="rounded-full bg-[#FFF9F0]/95 px-3 py-1 text-xs font-black text-[#8F2F24] shadow-sm backdrop-blur">
+              Нет в наличии
             </span>
-          ))}
+          ) : null}
+          {product.badges.length > 0 ? (
+            <div className="flex max-w-full flex-wrap items-center gap-1.5">
+              {product.badges.map((badge) => (
+                <span
+                  className={`rounded-full px-3 py-1 text-xs font-black shadow-sm backdrop-blur ${
+                    badge === "hit"
+                      ? "bg-[#E30613]/92 text-white"
+                      : "bg-[#FFF9F0]/95 text-[#9A642B]"
+                  }`}
+                  key={badge}
+                >
+                  {badge === "hit" ? "Хит" : "Новинка"}
+                </span>
+              ))}
+            </div>
+          ) : null}
         </div>
       </div>
 
