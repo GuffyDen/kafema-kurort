@@ -1,5 +1,6 @@
 import { validateQrTargetUrl } from "@/lib/qr/qrTargetUrl";
 import {
+  getTableStandBlobPathPrefix,
   readTenantSettings,
   saveQrTargetUrl,
   StorefrontPersistenceError,
@@ -31,6 +32,8 @@ export async function GET(request: Request) {
               ? "local-development"
               : "missing",
         updatedAt: savedUrl ? document.updatedAt : null,
+        tableStand: document.tableStand,
+        tableStandUploadPathPrefix: getTableStandBlobPathPrefix(),
         persistence,
       },
       { headers: { "Cache-Control": "no-store" } },
@@ -64,6 +67,8 @@ export async function PATCH(request: Request) {
         isLocalAddress: validation.isLocal,
         source: "saved",
         updatedAt: document.updatedAt,
+        tableStand: document.tableStand,
+        tableStandUploadPathPrefix: getTableStandBlobPathPrefix(),
         persistence,
       },
       { headers: { "Cache-Control": "no-store" } },

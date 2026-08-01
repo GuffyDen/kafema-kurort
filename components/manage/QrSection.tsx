@@ -3,11 +3,12 @@
 import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
 import QRCode from "qrcode";
+import { TableStandEditor } from "@/components/manage/TableStandEditor";
 import { validateQrTargetUrl } from "@/lib/qr/qrTargetUrl";
 import {
-  defaultTableStandTemplateId,
-  tableStandTemplates,
-} from "@/lib/qr/tableStandTemplates";
+  createEmptyTableStandLibrary,
+  type TableStandLibrary,
+} from "@/lib/qr/tableStand";
 
 const previewQrOptions = {
   color: { dark: "#000000", light: "#FFFFFF" },
@@ -23,10 +24,12 @@ type QrSettingsResponse = {
   isLocalAddress: boolean;
   source: "saved" | "configuration" | "local-development" | "missing";
   updatedAt: string | null;
+  tableStand: TableStandLibrary;
+  tableStandUploadPathPrefix: string;
   error?: string;
 };
 
-type ActionState = "idle" | "loading" | "saving" | "qr" | "table-stand";
+type ActionState = "idle" | "loading" | "saving" | "qr";
 
 function downloadDataUrl(dataUrl: string, fileName: string) {
   const link = document.createElement("a");
@@ -35,15 +38,6 @@ function downloadDataUrl(dataUrl: string, fileName: string) {
   document.body.appendChild(link);
   link.click();
   link.remove();
-}
-
-function loadImage(src: string) {
-  return new Promise<HTMLImageElement>((resolve, reject) => {
-    const image = document.createElement("img");
-    image.onload = () => resolve(image);
-    image.onerror = () => reject(new Error("Не удалось подготовить QR-код."));
-    image.src = src;
-  });
 }
 
 async function createPreview(url: string) {
@@ -57,6 +51,10 @@ export function QrSection() {
   const [hasSavedTarget, setHasSavedTarget] = useState(false);
   const [isLocalAddress, setIsLocalAddress] = useState(false);
   const [hasEdited, setHasEdited] = useState(false);
+  const [tableStand, setTableStand] = useState<TableStandLibrary>(
+    createEmptyTableStandLibrary,
+  );
+  const [tableStandUploadPathPrefix, setTableStandUploadPathPrefix] = useState("");
   const [actionState, setActionState] = useState<ActionState>("loading");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -97,6 +95,8 @@ export function QrSection() {
         setPreviewUrl(preview);
         setHasSavedTarget(payload.isSaved);
         setIsLocalAddress(payload.isLocalAddress);
+        setTableStand(payload.tableStand ?? createEmptyTableStandLibrary());
+        setTableStandUploadPathPrefix(payload.tableStandUploadPathPrefix ?? "");
         setActionState("idle");
       })
       .catch((loadError: unknown) => {
@@ -173,39 +173,6 @@ export function QrSection() {
       setMessage("Чистый QR скачан.");
     } catch {
       setError("Не удалось скачать QR-код. Попробуйте еще раз.");
-    } finally {
-      setActionState("idle");
-    }
-  }
-
-  async function downloadTableStand() {
-    if (exportsDisabled) return;
-
-    setActionState("table-stand");
-    setError("");
-    setMessage("");
-
-    try {
-      const template = tableStandTemplates[defaultTableStandTemplateId];
-      const qrDataUrl = await QRCode.toDataURL(confirmedUrl, {
-        ...previewQrOptions,
-        width: 1024,
-      });
-      const qrImage = await loadImage(qrDataUrl);
-      const canvas = document.createElement("canvas");
-      canvas.width = template.width;
-      canvas.height = template.height;
-
-      const context = canvas.getContext("2d");
-      if (!context) {
-        throw new Error("Canvas is unavailable");
-      }
-
-      template.render({ context, qrImage, storefrontUrl: confirmedUrl });
-      downloadDataUrl(canvas.toDataURL("image/png"), template.fileName);
-      setMessage("Table Stand скачан.");
-    } catch {
-      setError("Не удалось скачать Table Stand. Попробуйте еще раз.");
     } finally {
       setActionState("idle");
     }
@@ -316,7 +283,7 @@ export function QrSection() {
           </div>
         ) : null}
 
-        <div className="mt-6 grid gap-3 sm:grid-cols-2">
+        <div className="mx-auto mt-6 max-w-sm">
           <button
             type="button"
             className="min-h-12 rounded-2xl bg-[#E30613] px-5 font-black text-white shadow-[0_14px_28px_rgba(227,6,19,0.18)] transition hover:bg-[#C80010] disabled:cursor-not-allowed disabled:bg-[#EFEFEF] disabled:text-[#777777] disabled:shadow-none"
@@ -325,22 +292,22 @@ export function QrSection() {
           >
             {actionState === "qr" ? "Подготовка..." : "Скачать чистый QR"}
           </button>
-          <button
-            type="button"
-            className="min-h-12 rounded-2xl border border-[#E6E6E6] bg-white px-5 font-black text-[#1A1A1A] transition hover:bg-[#F7F7F7] disabled:cursor-not-allowed disabled:text-[#A1A1AA]"
-            disabled={exportsDisabled}
-            onClick={() => void downloadTableStand()}
-          >
-            {actionState === "table-stand"
-              ? "Подготовка..."
-              : "Скачать Table Stand"}
-          </button>
         </div>
 
         <div aria-live="polite" className="mt-4 min-h-6 text-center text-sm font-bold">
           {error ? <p className="text-[#B42318]">{error}</p> : null}
           {!error && message ? <p className="text-[#177245]">{message}</p> : null}
         </div>
+
+        {tableStandUploadPathPrefix ? (
+          <TableStandEditor
+            confirmedUrl={confirmedUrl}
+            disabled={hasUnsavedChanges || !confirmedUrl}
+            initialLibrary={tableStand}
+            uploadPathPrefix={tableStandUploadPathPrefix}
+            onLibraryChange={setTableStand}
+          />
+        ) : null}
       </div>
     </section>
   );
