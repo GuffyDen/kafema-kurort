@@ -2,6 +2,11 @@ import {
   checkIikoConnectionReadOnly,
   type IikoReadOnlyCheckResult,
 } from "@/lib/iikoCloudClient";
+import {
+  readLastSuccessfulIikoDiagnostics,
+  type IikoDiagnosticSnapshot,
+  writeLastSuccessfulIikoDiagnostics,
+} from "@/lib/iikoDiagnosticsStore";
 
 export const dynamic = "force-dynamic";
 
@@ -16,18 +21,39 @@ let cachedCheck:
 let inFlightCheck: Promise<IikoReadOnlyCheckResult> | null = null;
 
 export async function GET(request: Request) {
+  if (shouldReadStoredResult(request)) {
+    const stored = await readStoredDiagnostics();
+
+    return Response.json(stored, {
+      status: 200,
+      headers: { "Cache-Control": "no-store" },
+    });
+  }
+
   const { cache, check } = await getReadOnlyCheck({
     refresh: shouldRefresh(request),
   });
 
-  return Response.json({ ...serializeIikoCheck(check), cache }, { status: 200 });
+  const persistenceWarning = await persistSuccessfulCheck(check, cache.checkedAt);
+
+  return Response.json(
+    {
+      ...serializeIikoCheck(check),
+      cache: addCacheWarning(cache, persistenceWarning),
+    },
+    { status: 200, headers: { "Cache-Control": "no-store" } },
+  );
 }
 
 export async function POST(request: Request) {
   const { cache, check } = await getReadOnlyCheck({
     refresh: shouldRefresh(request),
   });
-  const diagnostics = { ...serializeIikoCheck(check), cache };
+  const persistenceWarning = await persistSuccessfulCheck(check, cache.checkedAt);
+  const diagnostics = {
+    ...serializeIikoCheck(check),
+    cache: addCacheWarning(cache, persistenceWarning),
+  };
 
   if (!check.ok || !check.result) {
     return Response.json(
@@ -116,6 +142,113 @@ function createCacheInfo(
 
 function shouldRefresh(request: Request) {
   return new URL(request.url).searchParams.get("refresh") === "1";
+}
+
+function shouldReadStoredResult(request: Request) {
+  return new URL(request.url).searchParams.get("stored") === "1";
+}
+
+async function readStoredDiagnostics() {
+  try {
+    const { value, persistence } = await readLastSuccessfulIikoDiagnostics();
+
+    return {
+      ok: true,
+      diagnostics: value,
+      cache: {
+        status: value ? "stored" : "empty",
+        checkedAt: value?.checkedAt,
+        persistence: persistence.mode,
+        warning: persistence.warning,
+      },
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      diagnostics: null,
+      cache: {
+        status: "unavailable",
+        warning:
+          error instanceof Error
+            ? sanitizeIikoError(error.message)
+            : "Не удалось прочитать сохранённую диагностику iiko.",
+      },
+    };
+  }
+}
+
+async function persistSuccessfulCheck(
+  check: IikoReadOnlyCheckResult,
+  checkedAt: string,
+) {
+  const snapshot = createDiagnosticSnapshot(check, checkedAt);
+
+  if (!snapshot) return null;
+
+  try {
+    await writeLastSuccessfulIikoDiagnostics(snapshot);
+    return null;
+  } catch (error) {
+    return error instanceof Error
+      ? `Не удалось сохранить последнюю успешную диагностику: ${sanitizeIikoError(error.message)}`
+      : "Не удалось сохранить последнюю успешную диагностику.";
+  }
+}
+
+function createDiagnosticSnapshot(
+  check: IikoReadOnlyCheckResult,
+  checkedAt: string,
+): IikoDiagnosticSnapshot | null {
+  if (
+    !check.ok ||
+    !check.tokenReceived ||
+    !check.menuReceived ||
+    !check.selectedOrganizationId ||
+    !check.selectedOrganizationName ||
+    !check.selectedTerminalGroupId ||
+    !check.selectedTerminalGroupName ||
+    !check.externalMenuId ||
+    !check.externalMenuName
+  ) {
+    return null;
+  }
+
+  return {
+    version: 1,
+    ok: true,
+    authVersion: "v2",
+    tokenReceived: true,
+    organizationsCount: check.organizationsCount,
+    terminalGroupsCount: check.terminalGroupsCount,
+    terminalGroupFound: true,
+    selectedOrganizationId: check.selectedOrganizationId,
+    selectedOrganizationName: check.selectedOrganizationName,
+    selectedTerminalGroupId: check.selectedTerminalGroupId,
+    selectedTerminalGroupName: check.selectedTerminalGroupName,
+    externalMenuId: check.externalMenuId,
+    externalMenuName: check.externalMenuName,
+    priceCategoriesCount: check.priceCategoriesCount,
+    firstProducts: check.firstProducts,
+    categoriesCount: check.categoriesCount,
+    productsCount: check.productsCount,
+    modifiersCount: check.modifiersCount,
+    menuReceived: true,
+    checkedAt,
+  };
+}
+
+function addCacheWarning<T extends { status: string; warning?: string }>(
+  cache: T,
+  persistenceWarning: string | null,
+) {
+  return persistenceWarning
+    ? {
+        ...cache,
+        warning: cache.warning
+          ? `${cache.warning} ${persistenceWarning}`
+          : persistenceWarning,
+      }
+    : cache;
 }
 
 function serializeIikoCheck(check: IikoReadOnlyCheckResult) {

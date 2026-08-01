@@ -89,6 +89,28 @@ type IikoCheckDiagnostics = {
   };
 };
 
+type StoredIikoCheckResponse = {
+  ok: boolean;
+  diagnostics: (Omit<IikoCheckDiagnostics, "cache"> & { checkedAt: string }) | null;
+  cache: {
+    status: string;
+    checkedAt?: string;
+    warning?: string | null;
+  };
+};
+
+type LiveIikoCheckResponse =
+  | {
+      ok: true;
+      result: IikoConnectionResult;
+      diagnostics?: IikoCheckDiagnostics;
+    }
+  | {
+      ok: false;
+      error: string;
+      diagnostics?: IikoCheckDiagnostics;
+    };
+
 type IikoWebhookRequestLog = {
   id: string;
   receivedAt: string;
@@ -124,13 +146,19 @@ const navItems: Array<{ id: AdminSection; label: string; hint: string }> = [
   { id: "settings", label: "Настройки", hint: "Бренд и контакты" },
 ];
 
+const IIKO_DIAGNOSTICS_FRESHNESS_MS = 5 * 60 * 1000;
+
 export function ManagePanel() {
   const [activeSection, setActiveSection] = useState<AdminSection>("connections");
+  const [isInitializingIiko, setIsInitializingIiko] = useState(true);
   const [isCheckingIiko, setIsCheckingIiko] = useState(false);
   const [iikoResult, setIikoResult] = useState<IikoConnectionResult | null>(null);
   const [iikoDiagnostics, setIikoDiagnostics] =
     useState<IikoCheckDiagnostics | null>(null);
+  const [iikoFailureDiagnostics, setIikoFailureDiagnostics] =
+    useState<IikoCheckDiagnostics | null>(null);
   const [iikoError, setIikoError] = useState("");
+  const [iikoCheckFeedback, setIikoCheckFeedback] = useState("");
   const [webhookStatus, setWebhookStatus] = useState<IikoWebhookStatus | null>(null);
   const [webhookCheckedAt, setWebhookCheckedAt] = useState<Date | null>(null);
   const [showEnvModeWarning, setShowEnvModeWarning] = useState(false);
@@ -144,10 +172,41 @@ export function ManagePanel() {
     banners: "Утренний кофе, сезонные напитки, десерты к выдаче",
     contacts: "+7 (914) 234-56-78",
   });
+  const iikoRequestInFlightRef = useRef(false);
+  const iikoInitializedRef = useRef(false);
+  const iikoLastSuccessfulCheckRef = useRef<number | null>(null);
+  const iikoFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     void refreshWebhookStatus();
+    void initializeIikoStatus();
+
+    return () => {
+      if (iikoFeedbackTimerRef.current) {
+        clearTimeout(iikoFeedbackTimerRef.current);
+      }
+    };
+    // Initialization is intentionally limited to one request sequence per mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    function handleVisibilityChange() {
+      if (
+        document.visibilityState === "visible" &&
+        activeSection === "connections" &&
+        iikoInitializedRef.current &&
+        isIikoDiagnosticsStale(iikoLastSuccessfulCheckRef.current)
+      ) {
+        void checkIikoConnection({ force: false, manual: false });
+      }
+    }
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+    // The listener is recreated only when the visible admin section changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSection]);
 
   async function refreshWebhookStatus(): Promise<IikoWebhookStatus | null> {
     try {
@@ -222,49 +281,118 @@ export function ManagePanel() {
     }
   }
 
-  async function checkIikoConnection() {
+  async function initializeIikoStatus() {
+    if (iikoInitializedRef.current) return;
+    iikoInitializedRef.current = true;
+
+    try {
+      const response = await fetch("/api/iiko/check?stored=1", {
+        cache: "no-store",
+      });
+      const payload = (await response.json()) as StoredIikoCheckResponse;
+      const stored = payload.diagnostics;
+
+      if (response.ok && payload.ok && stored) {
+        const { checkedAt, ...diagnostics } = stored;
+        setIikoDiagnostics({
+          ...diagnostics,
+          cache: {
+            status: payload.cache.status,
+            checkedAt,
+            warning: payload.cache.warning ?? undefined,
+          },
+        });
+        iikoLastSuccessfulCheckRef.current = parseIikoCheckedAt(checkedAt);
+      }
+
+      if (!stored || isIikoDiagnosticsStale(iikoLastSuccessfulCheckRef.current)) {
+        await checkIikoConnection({ force: false, manual: false });
+      }
+    } catch {
+      await checkIikoConnection({ force: false, manual: false });
+    } finally {
+      setIsInitializingIiko(false);
+    }
+  }
+
+  async function checkIikoConnection({
+    force = true,
+    manual = true,
+  }: {
+    force?: boolean;
+    manual?: boolean;
+  } = {}) {
+    if (iikoRequestInFlightRef.current) return;
+    iikoRequestInFlightRef.current = true;
     setIsCheckingIiko(true);
     setIikoError("");
+    setIikoFailureDiagnostics(null);
+    setIikoCheckFeedback("");
     setShowEnvModeWarning(true);
 
     try {
-      const response = await fetch("/api/iiko/check?refresh=1", {
+      const response = await fetch(`/api/iiko/check${force ? "?refresh=1" : ""}`, {
         method: "POST",
         cache: "no-store",
       });
-      const payload = (await response.json()) as
-        | {
-            ok: true;
-            result: IikoConnectionResult;
-            diagnostics?: IikoCheckDiagnostics;
-          }
-        | {
-            ok: false;
-            error: string;
-            diagnostics?: IikoCheckDiagnostics;
-          };
-
-      setIikoDiagnostics(payload.diagnostics ?? null);
+      const payload = (await response.json()) as LiveIikoCheckResponse;
 
       if (!response.ok) {
         throw new Error("Сервер диагностики iiko не ответил корректно");
       }
 
       if (!payload.ok) {
+        setIikoFailureDiagnostics(payload.diagnostics ?? null);
         throw new Error(payload.error);
       }
 
       const result = payload.result;
+      const diagnostics = payload.diagnostics;
+
+      if (diagnostics) {
+        setIikoDiagnostics(diagnostics);
+        iikoLastSuccessfulCheckRef.current = parseIikoCheckedAt(
+          diagnostics.cache?.checkedAt,
+        );
+      }
       setIikoResult(result);
+      if (manual) {
+        showIikoFeedback("Подключение подтверждено");
+      }
     } catch (error) {
-      setIikoResult(null);
+      const message =
+        error instanceof Error ? error.message : "Не удалось проверить iiko.";
       setIikoError(
-        error instanceof Error
-          ? error.message
-          : "Не удалось проверить iiko.",
+        iikoLastSuccessfulCheckRef.current
+          ? `Не удалось обновить данные. Показан последний успешный результат. ${message}`
+          : message,
       );
     } finally {
+      iikoRequestInFlightRef.current = false;
       setIsCheckingIiko(false);
+    }
+  }
+
+  function showIikoFeedback(message: string) {
+    if (iikoFeedbackTimerRef.current) {
+      clearTimeout(iikoFeedbackTimerRef.current);
+    }
+    setIikoCheckFeedback(message);
+    iikoFeedbackTimerRef.current = setTimeout(() => {
+      setIikoCheckFeedback("");
+      iikoFeedbackTimerRef.current = null;
+    }, 2400);
+  }
+
+  function selectAdminSection(section: AdminSection) {
+    setActiveSection(section);
+
+    if (
+      section === "connections" &&
+      iikoInitializedRef.current &&
+      isIikoDiagnosticsStale(iikoLastSuccessfulCheckRef.current)
+    ) {
+      void checkIikoConnection({ force: false, manual: false });
     }
   }
 
@@ -304,7 +432,7 @@ export function ManagePanel() {
                     : "bg-[#F7F7F7] text-[#1A1A1A] hover:bg-[#EFEFEF]"
                 }`}
                 key={item.id}
-                onClick={() => setActiveSection(item.id)}
+                onClick={() => selectAdminSection(item.id)}
               >
                 <span className="block text-base font-bold">{item.label}</span>
                 <span
@@ -332,19 +460,22 @@ export function ManagePanel() {
                 {getPageDescription(activeSection)}
               </p>
             </div>
-            <StatusPill connected={Boolean(iikoResult)} />
+            <StatusPill connected={Boolean(iikoDiagnostics?.ok || iikoResult)} />
           </header>
 
           {activeSection === "connections" ? (
             <ConnectionsSection
+              iikoCheckFeedback={iikoCheckFeedback}
               iikoError={iikoError}
               iikoDiagnostics={iikoDiagnostics}
+              iikoFailureDiagnostics={iikoFailureDiagnostics}
               iikoResult={iikoResult}
               isCheckingIiko={isCheckingIiko}
+              isInitializingIiko={isInitializingIiko}
               showEnvModeWarning={showEnvModeWarning}
               webhookCheckedAt={webhookCheckedAt}
               webhookStatus={webhookStatus}
-              onCheckIiko={checkIikoConnection}
+              onCheckIiko={() => void checkIikoConnection()}
               onClearWebhook={clearWebhookJournal}
               onRefreshWebhook={refreshWebhookStatus}
             />
@@ -377,10 +508,13 @@ export function ManagePanel() {
 }
 
 function ConnectionsSection({
+  iikoCheckFeedback,
   iikoError,
   iikoDiagnostics,
+  iikoFailureDiagnostics,
   iikoResult,
   isCheckingIiko,
+  isInitializingIiko,
   showEnvModeWarning,
   webhookCheckedAt,
   webhookStatus,
@@ -388,10 +522,13 @@ function ConnectionsSection({
   onClearWebhook,
   onRefreshWebhook,
 }: {
+  iikoCheckFeedback: string;
   iikoError: string;
   iikoDiagnostics: IikoCheckDiagnostics | null;
+  iikoFailureDiagnostics: IikoCheckDiagnostics | null;
   iikoResult: IikoConnectionResult | null;
   isCheckingIiko: boolean;
+  isInitializingIiko: boolean;
   showEnvModeWarning: boolean;
   webhookCheckedAt: Date | null;
   webhookStatus: IikoWebhookStatus | null;
@@ -405,7 +542,10 @@ function ConnectionsSection({
         <IikoCloudApiCard
           diagnostics={iikoDiagnostics}
           error={iikoError}
+          errorDiagnostics={iikoFailureDiagnostics}
+          feedback={iikoCheckFeedback}
           isChecking={isCheckingIiko}
+          isInitializing={isInitializingIiko}
           result={iikoResult}
           showEnvModeWarning={showEnvModeWarning}
           onCheck={onCheckIiko}
@@ -428,28 +568,35 @@ function ConnectionsSection({
 function IikoCloudApiCard({
   diagnostics,
   error,
+  errorDiagnostics,
+  feedback,
   isChecking,
+  isInitializing,
   result,
   showEnvModeWarning,
   onCheck,
 }: {
   diagnostics: IikoCheckDiagnostics | null;
   error: string;
+  errorDiagnostics: IikoCheckDiagnostics | null;
+  feedback: string;
   isChecking: boolean;
+  isInitializing: boolean;
   result: IikoConnectionResult | null;
   showEnvModeWarning: boolean;
   onCheck: () => void;
 }) {
+  const hasSuccessfulDiagnostics = diagnostics?.ok === true;
   const tokenReceived = diagnostics?.tokenReceived ?? result?.tokenReceived ?? false;
   const organizationName =
-    diagnostics?.selectedOrganizationName ?? result?.organization.name ?? "Не проверено";
+    diagnostics?.selectedOrganizationName ?? result?.organization.name ?? "Нет данных";
   const terminalGroupName =
     diagnostics?.selectedTerminalGroupName ??
     result?.organization.terminalGroupId ??
-    "Не проверено";
+    "Нет данных";
   const organizationId = diagnostics?.selectedOrganizationId ?? null;
   const terminalGroupId = diagnostics?.selectedTerminalGroupId ?? null;
-  const externalMenuName = diagnostics?.externalMenuName ?? "Не проверено";
+  const externalMenuName = diagnostics?.externalMenuName ?? "Нет данных";
   const externalMenuId = diagnostics?.externalMenuId ?? null;
   const priceCategoriesCount = diagnostics?.priceCategoriesCount ?? 0;
   const categoriesCount = diagnostics?.categoriesCount ?? result?.summary.categories ?? 0;
@@ -457,34 +604,74 @@ function IikoCloudApiCard({
   const modifiersCount = diagnostics?.modifiersCount ?? result?.summary.modifiers ?? 0;
   const authVersion = diagnostics?.authVersion ?? "v2";
   const connected = Boolean(
-    diagnostics?.ok && tokenReceived && productsCount > 0 && result && !error,
+    hasSuccessfulDiagnostics && tokenReceived && productsCount > 0,
   );
-  const diagnosticError = diagnostics?.rawErrors?.[0];
+  const diagnosticError = errorDiagnostics?.rawErrors?.[0];
+  const isFirstLoad = !hasSuccessfulDiagnostics && (isInitializing || isChecking);
+  const isRefreshing = hasSuccessfulDiagnostics && isChecking;
   const lastCheckedAt = diagnostics?.cache?.checkedAt
     ? formatWebhookDate(diagnostics.cache.checkedAt)
-    : result?.lastSyncAt ?? "Не проверено";
+    : result?.lastSyncAt ?? "Нет данных";
+  const headerStatus = isFirstLoad
+    ? "Проверяем..."
+    : error && hasSuccessfulDiagnostics
+      ? "Последние данные"
+      : error
+        ? "Ошибка"
+        : connected
+          ? "iiko подключена"
+          : "Ожидает проверки";
+  const headerTone = error
+    ? hasSuccessfulDiagnostics
+      ? "warning"
+      : "danger"
+    : connected
+      ? "success"
+      : isFirstLoad
+        ? "warning"
+        : "neutral";
 
   return (
     <Card>
       <IntegrationCardHeader
         description="Проверка организации, точки и внешнего меню."
-        status={error ? "Ошибка" : connected ? "iiko подключена" : "Не проверено"}
+        status={headerStatus}
         title="iiko Cloud API"
-        tone={error ? "danger" : connected ? "success" : "neutral"}
+        tone={headerTone}
       />
 
-      <div className="mt-5 grid gap-3 sm:grid-cols-2">
-        <Info label="Организация" value={organizationName} />
-        <Info label="Терминальная группа" value={terminalGroupName} />
-        <Info label="Меню" value={externalMenuName} />
-        <Info label="Ценовые категории" value={String(priceCategoriesCount)} />
-      </div>
+      {isFirstLoad ? (
+        <div className="mt-5" aria-live="polite">
+          <p className="text-sm font-bold text-[#777777]">
+            Проверяем подключение к iiko…
+          </p>
+          <div className="mt-4 grid animate-pulse gap-3 sm:grid-cols-2">
+            {Array.from({ length: 4 }).map((_, index) => (
+              <div className="h-12 rounded-2xl bg-[#F1EEE9]" key={index} />
+            ))}
+          </div>
+          <div className="mt-5 grid animate-pulse grid-cols-3 gap-3">
+            {Array.from({ length: 3 }).map((_, index) => (
+              <div className="h-16 rounded-2xl bg-[#F1EEE9]" key={index} />
+            ))}
+          </div>
+        </div>
+      ) : hasSuccessfulDiagnostics ? (
+        <>
+          <div className="mt-5 grid gap-3 sm:grid-cols-2">
+            <Info label="Организация" value={organizationName} />
+            <Info label="Терминальная группа" value={terminalGroupName} />
+            <Info label="Меню" value={externalMenuName} />
+            <Info label="Ценовые категории" value={String(priceCategoriesCount)} />
+          </div>
 
-      <div className="mt-5 grid grid-cols-3 gap-3">
-        <CompactMetric label="Категории" value={categoriesCount} />
-        <CompactMetric label="Товары" value={productsCount} />
-        <CompactMetric label="Модификаторы" value={modifiersCount} />
-      </div>
+          <div className="mt-5 grid grid-cols-3 gap-3">
+            <CompactMetric label="Категории" value={categoriesCount} />
+            <CompactMetric label="Товары" value={productsCount} />
+            <CompactMetric label="Модификаторы" value={modifiersCount} />
+          </div>
+        </>
+      ) : null}
 
       {connected && (diagnostics?.firstProducts.length ?? 0) > 0 ? (
         <div className="mt-5 rounded-3xl bg-[#F7F7F7] p-4">
@@ -505,13 +692,29 @@ function IikoCloudApiCard({
       ) : null}
 
       {error ? (
-        <div className="mt-5 rounded-3xl bg-[#FFE7E7] p-4 text-sm font-bold leading-6 text-[#B00020]">
+        <div
+          className={`mt-5 rounded-3xl p-4 text-sm font-bold leading-6 ${
+            hasSuccessfulDiagnostics
+              ? "bg-[#FFF4D7] text-[#8A6500]"
+              : "bg-[#FFE7E7] text-[#B00020]"
+          }`}
+        >
           <p>{error}</p>
           {diagnosticError?.status ? <p>HTTP status: {diagnosticError.status}</p> : null}
           {diagnosticError?.correlationId ? (
             <p>Correlation ID: {diagnosticError.correlationId}</p>
           ) : null}
         </div>
+      ) : null}
+
+      {isRefreshing ? (
+        <p className="mt-4 text-sm font-bold text-[#777777]" aria-live="polite">
+          Обновляем данные iiko…
+        </p>
+      ) : feedback ? (
+        <p className="mt-4 text-sm font-bold text-[#226B35]" aria-live="polite">
+          {feedback}
+        </p>
       ) : null}
 
       <PrimaryButton onClick={onCheck} disabled={isChecking}>
@@ -832,15 +1035,21 @@ function DeveloperDiagnostics({
           <p className="text-sm font-black text-[#3B2F2A]">
             Последняя проверка External Menu
           </p>
-          <div className="mt-3 grid grid-cols-2 gap-2">
-            <CompactMetric label="Товары" value={diagnostics?.productsCount ?? 0} />
-            <CompactMetric label="Категории" value={diagnostics?.categoriesCount ?? 0} />
-            <CompactMetric label="Модификаторы" value={diagnostics?.modifiersCount ?? 0} />
-            <CompactMetric
-              label="Terminal groups"
-              value={diagnostics?.terminalGroupsCount ?? 0}
-            />
-          </div>
+          {diagnostics ? (
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <CompactMetric label="Товары" value={diagnostics.productsCount} />
+              <CompactMetric label="Категории" value={diagnostics.categoriesCount} />
+              <CompactMetric label="Модификаторы" value={diagnostics.modifiersCount} />
+              <CompactMetric
+                label="Terminal groups"
+                value={diagnostics.terminalGroupsCount ?? 0}
+              />
+            </div>
+          ) : (
+            <p className="mt-3 text-sm font-bold text-[#777777]">
+              Диагностика загружается…
+            </p>
+          )}
         </div>
       </div>
       {diagnostics?.rawErrors && diagnostics.rawErrors.length > 0 ? (
@@ -950,6 +1159,16 @@ function formatWebhookDate(value?: string | null) {
     minute: "2-digit",
     second: "2-digit",
   }).format(date);
+}
+
+function parseIikoCheckedAt(value?: string | null) {
+  if (!value) return null;
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+function isIikoDiagnosticsStale(checkedAt: number | null) {
+  return checkedAt === null || Date.now() - checkedAt >= IIKO_DIAGNOSTICS_FRESHNESS_MS;
 }
 
 function formatWebhookCheckTime(value: Date | null) {
