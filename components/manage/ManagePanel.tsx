@@ -13,6 +13,7 @@ import {
   type BaristaSettings,
 } from "@/lib/baristaSettings";
 import { StorefrontSection } from "@/components/manage/StorefrontSection";
+import { QrSection } from "@/components/manage/QrSection";
 
 type AdminSection = "connections" | "storefront" | "barista" | "qr" | "settings";
 
@@ -274,8 +275,8 @@ export function ManagePanel() {
 
   return (
     <main className="min-h-screen bg-[#F7F7F7] text-[#1A1A1A]">
-      <div className="mx-auto grid min-h-screen max-w-[1440px] grid-cols-[280px_1fr]">
-        <aside className="border-r border-[#E6E6E6] bg-white px-5 py-6">
+      <div className="mx-auto grid min-h-screen max-w-[1440px] grid-cols-1 lg:grid-cols-[280px_1fr]">
+        <aside className="border-b border-[#E6E6E6] bg-white px-4 py-4 sm:px-6 lg:border-r lg:border-b-0 lg:px-5 lg:py-6">
           <div className="flex items-center gap-3">
             <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-2xl bg-[#F7F7F7] shadow-[0_12px_28px_rgba(26,26,26,0.08)]">
               <Image
@@ -293,7 +294,7 @@ export function ManagePanel() {
             </div>
           </div>
 
-          <nav className="mt-8 space-y-2">
+          <nav className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:mt-8 lg:block lg:space-y-2">
             {navItems.map((item) => (
               <button
                 type="button"
@@ -318,13 +319,13 @@ export function ManagePanel() {
           </nav>
         </aside>
 
-        <section className="min-w-0 px-8 py-6">
-          <header className="mb-6 flex items-start justify-between gap-6">
+        <section className="min-w-0 px-4 py-5 sm:px-6 lg:px-8 lg:py-6">
+          <header className="mb-6 flex flex-col items-start justify-between gap-4 sm:flex-row sm:gap-6">
             <div>
               <p className="text-sm font-bold uppercase tracking-[0.16em] text-[#E30613]">
                 {navItems.find((item) => item.id === activeSection)?.label}
               </p>
-              <h1 className="mt-2 text-4xl font-black tracking-tight">
+              <h1 className="mt-2 text-3xl font-black tracking-tight sm:text-4xl">
                 {getPageTitle(activeSection)}
               </h1>
               <p className="mt-2 max-w-3xl text-base leading-7 text-[#777777]">
@@ -1032,27 +1033,6 @@ function BaristaSection({
   );
 }
 
-function QrSection() {
-  return (
-    <div className="grid gap-4 lg:grid-cols-3">
-      {[
-        ["QR для самовывоза", "Гость открывает меню и выбирает выдачу у стойки."],
-        ["QR для столиков", "Будущий сценарий заказа с привязкой к столику."],
-        ["QR для доставки", "Будущий сценарий внешней доставки."],
-      ].map(([title, description]) => (
-        <Card key={title}>
-          <div className="flex aspect-square items-center justify-center rounded-3xl bg-[#F7F7F7] text-5xl font-black text-[#E30613]">
-            QR
-          </div>
-          <h2 className="mt-5 text-xl font-black">{title}</h2>
-          <p className="mt-2 text-sm leading-6 text-[#777777]">{description}</p>
-          <SecondaryButton disabled onClick={() => undefined}>Скоро</SecondaryButton>
-        </Card>
-      ))}
-    </div>
-  );
-}
-
 function SettingsSection({
   settings,
   setSettings,
@@ -1290,7 +1270,7 @@ function getPageDescription(section: AdminSection) {
     return "Настройки рабочего места бариста без вмешательства в меню и учетные данные.";
   }
   if (section === "qr") {
-    return "Подготовка QR-точек входа для разных сценариев заказа.";
+    return "QR клиентской витрины и готовый макет для размещения в кофейне.";
   }
   return "Брендовые настройки кофейни, которые не являются учетными данными iiko.";
 }
