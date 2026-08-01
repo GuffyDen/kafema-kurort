@@ -873,12 +873,47 @@ function getCategoryIconSrc(categoryId: string, categoryName: string) {
     return "/icons/categories/all.svg";
   }
 
+  if (
+    key.includes("black coffee") ||
+    key.includes("coffee black") ||
+    key.includes("черный кофе") ||
+    key.includes("кофе черный") ||
+    key.includes("кофе чёрный")
+  ) {
+    return "/icons/categories/coffee-black.svg";
+  }
+
   if (key.includes("coffee") || key.includes("кофе")) {
     return "/icons/categories/coffee.svg";
   }
 
-  if (key.includes("cold") || key.includes("холод")) {
+  if (
+    key.includes("fino") ||
+    key.includes("cocoa") ||
+    key.includes("какао") ||
+    key.includes("шоколад")
+  ) {
+    return "/icons/categories/cocoa.svg";
+  }
+
+  if (
+    key.includes("cold") ||
+    key.includes("холод") ||
+    key.includes("освеж")
+  ) {
     return "/icons/categories/cold.svg";
+  }
+
+  if (key.includes("hot") || key.includes("согрей")) {
+    return "/icons/categories/hot.svg";
+  }
+
+  if (
+    key.includes("berry") ||
+    key.includes("морс") ||
+    key.includes("квас")
+  ) {
+    return "/icons/categories/berry-drink.svg";
   }
 
   if (key.includes("bakery") || key.includes("выпеч")) {
@@ -891,6 +926,10 @@ function getCategoryIconSrc(categoryId: string, categoryName: string) {
 
   if (key.includes("snack") || key.includes("перекус")) {
     return "/icons/categories/snacks.svg";
+  }
+
+  if (key.includes("food") || key.includes("еда")) {
+    return "/icons/categories/food.svg";
   }
 
   if (key.includes("tea") || key.includes("чай")) {
