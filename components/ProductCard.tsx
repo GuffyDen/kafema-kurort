@@ -3,7 +3,6 @@
 import Image from "next/image";
 import {
   getMenuItemPrice,
-  getMenuItemSummary,
   fallbackImageSrc,
   type MenuItem,
 } from "@/lib/menuStore";
@@ -18,17 +17,16 @@ type ProductCardProps = {
 export function ProductCard({ product, onAdd }: ProductCardProps) {
   const canAdd = product.inStock;
   const price = getMenuItemPrice(product);
-  const summary = getMenuItemSummary(product);
 
   return (
     <article
-      className={`overflow-hidden rounded-[24px] border border-[#EFE2D4] bg-[#FFF9F0] shadow-[0_16px_36px_rgba(64,39,23,0.08)] transition-[opacity,transform,box-shadow] duration-500 ease-out ${
+      className={`flex h-full flex-col overflow-hidden rounded-[24px] border border-[#EFE2D4] bg-[#FFF9F0] shadow-[0_16px_36px_rgba(64,39,23,0.08)] transition-[opacity,transform,box-shadow] duration-500 ease-out ${
         canAdd
           ? "hover:-translate-y-0.5 hover:shadow-[0_24px_48px_rgba(64,39,23,0.12)]"
           : "opacity-60"
       }`}
     >
-      <div className="relative aspect-[1.08] overflow-hidden bg-[#EFE2D1]">
+      <div className="relative aspect-[1.08] shrink-0 overflow-hidden bg-[#EFE2D1]">
         {product.imageSrc ? (
           <img
             src={product.imageSrc}
@@ -73,15 +71,14 @@ export function ProductCard({ product, onAdd }: ProductCardProps) {
         </div>
       </div>
 
-      <div className="p-4">
-        <h3 className="truncate font-serif text-[1.22rem] font-bold leading-tight text-[var(--color-text-main)]">
-          {product.name}
-        </h3>
-        <p className="mt-2 line-clamp-2 min-h-[2.5rem] text-sm leading-5 text-[var(--color-text-main)]/75">
-          {summary}
-        </p>
+      <div className="flex flex-1 flex-col p-4">
+        <div className="flex h-[4.575rem] items-center justify-center">
+          <h3 className="line-clamp-3 w-full break-words px-1 text-center font-serif text-[1.22rem] font-bold leading-tight text-[var(--color-text-main)]">
+            {product.name}
+          </h3>
+        </div>
 
-        <div className="mt-4 flex items-center justify-between">
+        <div className="mt-auto flex items-center justify-between pt-4">
           <p className="text-xl font-black text-[var(--color-text-main)]">
             {price.toLocaleString("ru-RU")} ₽
           </p>
