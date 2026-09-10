@@ -4,16 +4,17 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { OrderSuccessModal } from "@/components/OrderSuccessModal";
 import type { ClientJourneyStatus } from "@/components/OrderStatusTimeline";
-import type { Order } from "@/lib/orderStore";
+import type { CustomerOrder } from "@/lib/orderStore";
 
-const previewOrder: Order = {
+const previewOrder: CustomerOrder = {
   id: "preview-order-725",
   number: "725",
   customerName: "Гость",
-  phone: "+7 (914) 234-56-78",
   createdAt: "10:24",
-  statusChangedAt: Date.now(),
+  statusChangedAt: new Date().toISOString(),
   status: "ready",
+  source: "client",
+  total: 810,
   items: [
     {
       id: "cappuccino",

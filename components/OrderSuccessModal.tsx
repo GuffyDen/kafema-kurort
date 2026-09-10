@@ -6,10 +6,10 @@ import {
   OrderStatusTimeline,
   type ClientJourneyStatus,
 } from "@/components/OrderStatusTimeline";
-import type { Order, OrderStatus } from "@/lib/orderStore";
+import type { CustomerOrder, OrderStatus } from "@/lib/orderStore";
 
 type OrderSuccessModalProps = {
-  order: Order;
+  order: CustomerOrder;
   onBackToMenu: () => void;
   journeyStatusOverride?: ClientJourneyStatus;
 };
@@ -55,6 +55,17 @@ export function OrderSuccessModal({
   const journeyStatus = journeyStatusOverride ?? journeyStatusByOrderStatus[order.status];
   const copy = heroCopy[journeyStatus];
   const isReady = journeyStatus === "READY";
+
+  if (order.paymentStatus && order.paymentStatus !== "succeeded") {
+    return (
+      <main className="mx-auto min-h-screen max-w-md bg-[var(--color-bg-cream)] px-5 py-10 text-[var(--color-text-main)]">
+        <h1 className="text-2xl font-black">{order.paymentStatus === "canceled" ? "Оплата не завершена" : "Ожидаем оплату"}</h1>
+        <p className="mt-3">Заказ №{order.number} ещё не передан бариста.</p>
+        <a className="mt-5 flex min-h-12 items-center justify-center rounded-3xl bg-[var(--color-caramel)] px-5 font-bold text-white" href={`/payment/return?orderId=${order.id}`}>Проверить оплату</a>
+        <button className="mt-3 min-h-12 w-full font-bold" onClick={onBackToMenu}>Вернуться в меню</button>
+      </main>
+    );
+  }
 
   return (
     <div className="relative min-h-screen overflow-x-hidden bg-[var(--color-bg-cream)] px-4 py-5 text-[var(--color-text-main)]">
@@ -105,7 +116,7 @@ export function OrderSuccessModal({
               <p className="mt-1 text-xl font-black">{order.customerName}</p>
             </div>
             <span className="rounded-full bg-[#F2E7D9] px-3 py-1.5 text-sm font-bold text-[var(--color-text-muted)]">
-              {order.createdAt}
+              {formatOrderTime(order.createdAt)}
             </span>
           </div>
 
@@ -171,4 +182,13 @@ export function OrderSuccessModal({
       </main>
     </div>
   );
+}
+
+function formatOrderTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime()) || !value.includes("T")) return value;
+  return new Intl.DateTimeFormat("ru-RU", {
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
 }

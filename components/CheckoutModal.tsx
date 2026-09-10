@@ -1,9 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import Link from "next/link";
+import { useRef, useState } from "react";
 import type { ChangeEvent, FormEvent } from "react";
 import { BackgroundDecor } from "@/components/BackgroundDecor";
 import type { CartItem } from "@/components/CartModal";
+import { normalizeOrderEmail } from "@/lib/orderEmail";
 
 type CheckoutModalProps = {
   items: CartItem[];
@@ -15,7 +17,10 @@ type CheckoutModalProps = {
   onConfirm: (customer: {
     name: string;
     phone: string;
+    email: string;
     comment?: string;
+    personalDataConsent: boolean;
+    idempotencyKey: string;
   }) => Promise<void>;
 };
 
@@ -36,23 +41,70 @@ export function CheckoutModal({
     return formatPhone(profile.phone || legacyPhone);
   });
   const [phoneError, setPhoneError] = useState("");
+  const [email, setEmail] = useState("");
+  const [emailError, setEmailError] = useState("");
+  const [personalDataConsent, setPersonalDataConsent] = useState(false);
+  const [consentError, setConsentError] = useState("");
+  const [submissionError, setSubmissionError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const isSubmittingRef = useRef(false);
+  const idempotencyKeyRef = useRef<string | null>(null);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (isSubmittingRef.current) return;
 
     const formData = new FormData(event.currentTarget);
     const name = customerName.trim();
     const comment = String(formData.get("comment") ?? "").trim();
+
+    if (!personalDataConsent) {
+      setConsentError(
+        "Для оформления заказа необходимо дать согласие на обработку персональных данных.",
+      );
+      return;
+    }
 
     if (getNationalPhoneDigits(phone).length !== 10) {
       setPhoneError("Введите корректный номер телефона");
       return;
     }
 
-    saveCustomerProfile({ name, phone });
-    localStorage.setItem("kafema-phone", phone);
+    const normalizedEmail = normalizeOrderEmail(email);
+    if (!normalizedEmail) {
+      setEmailError("Введите корректный email для чека");
+      return;
+    }
+
     setPhoneError("");
-    await onConfirm({ name, phone, comment: comment || undefined });
+    setEmailError("");
+    setConsentError("");
+    setSubmissionError("");
+    isSubmittingRef.current = true;
+    setIsSubmitting(true);
+    idempotencyKeyRef.current ??= crypto.randomUUID();
+
+    try {
+      await onConfirm({
+        name,
+        phone,
+        email: normalizedEmail,
+        comment: comment || undefined,
+        personalDataConsent,
+        idempotencyKey: idempotencyKeyRef.current,
+      });
+      saveCustomerProfile({ name, phone });
+      localStorage.setItem("kafema-phone", phone);
+    } catch (error) {
+      setSubmissionError(
+        error instanceof Error
+          ? error.message
+          : "Не удалось создать заказ. Попробуйте ещё раз.",
+      );
+    } finally {
+      isSubmittingRef.current = false;
+      setIsSubmitting(false);
+    }
   }
 
   function handlePhoneChange(event: ChangeEvent<HTMLInputElement>) {
@@ -80,6 +132,7 @@ export function CheckoutModal({
             type="button"
             className="flex h-11 w-11 items-center justify-center rounded-full bg-[#FFF7EA] text-2xl leading-none text-[var(--color-text-main)] shadow-[0_8px_18px_rgba(73,52,36,0.10)] transition duration-300 hover:text-[var(--color-caramel)] active:scale-95"
             onClick={onBack}
+            disabled={isSubmitting}
             aria-label="Вернуться в корзину"
           >
             ×
@@ -95,6 +148,7 @@ export function CheckoutModal({
                 name="name"
                 placeholder="Как к вам обращаться"
                 required
+                maxLength={80}
                 value={customerName}
                 onChange={(event) => setCustomerName(event.target.value)}
               />
@@ -109,6 +163,7 @@ export function CheckoutModal({
                 name="phone"
                 placeholder="+7 999 000-00-00"
                 type="tel"
+                required
                 value={phone}
                 onChange={handlePhoneChange}
               />
@@ -121,12 +176,38 @@ export function CheckoutModal({
 
             <label className="block">
               <span className="text-sm font-bold text-[var(--color-text-main)]">
+                Email для электронного чека
+              </span>
+              <input
+                className="mt-2 h-14 w-full rounded-[22px] border border-[#E8D9C8] bg-[#FFFDF8] px-4 text-base text-[var(--color-text-main)] outline-none transition focus:border-[var(--color-caramel)]"
+                name="email"
+                type="email"
+                inputMode="email"
+                autoComplete="email"
+                autoCapitalize="none"
+                spellCheck={false}
+                placeholder="name@example.ru"
+                maxLength={254}
+                required
+                value={email}
+                aria-invalid={Boolean(emailError)}
+                aria-describedby="checkout-email-hint"
+                onChange={(event) => { setEmail(event.target.value); setEmailError(""); }}
+              />
+              <p id="checkout-email-hint" className={`mt-2 text-sm ${emailError ? "font-semibold text-[#9B2D1F]" : "text-[var(--color-text-muted)]"}`}>
+                {emailError || "Отправим чеки об оплате и выдаче заказа."}
+              </p>
+            </label>
+
+            <label className="block">
+              <span className="text-sm font-bold text-[var(--color-text-main)]">
                 Комментарий к заказу
               </span>
               <textarea
                 className="mt-2 min-h-24 w-full resize-none rounded-[22px] border border-[#E8D9C8] bg-[#FFFDF8] px-4 py-4 text-base text-[var(--color-text-main)] outline-none transition focus:border-[var(--color-caramel)]"
                 name="comment"
                 placeholder="Например: без сахара"
+                maxLength={500}
               />
             </label>
           </div>
@@ -193,12 +274,89 @@ export function CheckoutModal({
               {availabilityMessage}
             </p>
           ) : null}
+          {submissionError ? (
+            <p
+              role="alert"
+              className="mb-4 rounded-[20px] bg-[#FCE8E5] px-4 py-3 text-sm font-bold leading-5 text-[#8F2F24]"
+            >
+              {submissionError}
+            </p>
+          ) : null}
+          <div className="mb-4 rounded-[22px] border border-[#E8D9C8] bg-[#FFFDF8] px-4 py-3.5">
+            <div className="flex items-start gap-2.5">
+              <label
+                htmlFor="personal-data-consent"
+                className="-ml-2 -mt-2 flex min-h-11 min-w-11 shrink-0 cursor-pointer items-center justify-center rounded-full"
+              >
+                <input
+                  id="personal-data-consent"
+                  name="personalDataConsent"
+                  type="checkbox"
+                  checked={personalDataConsent}
+                  aria-label="Согласие на обработку персональных данных"
+                  aria-describedby={consentError ? "personal-data-consent-error" : undefined}
+                  aria-invalid={Boolean(consentError)}
+                  className="h-5 w-5 cursor-pointer accent-[#BD8649]"
+                  onChange={(event) => {
+                    setPersonalDataConsent(event.target.checked);
+                    setConsentError("");
+                  }}
+                />
+              </label>
+              <p className="text-sm leading-5 text-[var(--color-text-main)]">
+                Я даю{" "}
+                <Link
+                  href="/legal/personal-data-consent"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-bold text-[#8B572F] underline decoration-[#CFB79F] underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#BD8649]"
+                >
+                  согласие на обработку персональных данных
+                </Link>{" "}
+                и ознакомлен(а) с{" "}
+                <Link
+                  href="/legal/privacy"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-bold text-[#8B572F] underline decoration-[#CFB79F] underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#BD8649]"
+                >
+                  Политикой конфиденциальности
+                </Link>
+                .
+              </p>
+            </div>
+            {consentError ? (
+              <p
+                id="personal-data-consent-error"
+                role="alert"
+                className="mt-2 text-sm font-semibold leading-5 text-[#9B2D1F]"
+              >
+                {consentError}
+              </p>
+            ) : null}
+            <p className="mt-2 text-xs leading-5 text-[var(--color-text-muted)]">
+              Нажимая кнопку перехода к оплате, я принимаю условия{" "}
+              <Link
+                href="/legal/offer"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-bold text-[#8B572F] underline decoration-[#CFB79F] underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#BD8649]"
+              >
+                Публичной оферты
+              </Link>
+              .
+            </p>
+          </div>
           <button
             type="submit"
             className="h-[60px] w-full rounded-[28px] bg-[var(--color-caramel)] px-5 text-base font-black text-white shadow-[0_18px_34px_rgba(189,134,73,0.26)] transition duration-300 hover:bg-[#A86F34] active:scale-[0.99] disabled:cursor-not-allowed disabled:bg-[#D9C8B5] disabled:shadow-none"
-            disabled={isCheckingAvailability}
+            disabled={isCheckingAvailability || isSubmitting || !personalDataConsent}
           >
-            {isCheckingAvailability ? "Проверяем наличие..." : "Подтвердить заказ"}
+            {isSubmitting
+              ? "Создаём заказ..."
+              : isCheckingAvailability
+                ? "Проверяем наличие..."
+                : "Подтвердить заказ"}
           </button>
         </div>
       </form>

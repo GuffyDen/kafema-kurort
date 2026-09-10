@@ -10,20 +10,26 @@ import { CategoryCard } from "@/components/CategoryCard";
 import { CheckoutModal } from "@/components/CheckoutModal";
 import { EmptyState } from "@/components/EmptyState";
 import { Header, HeroCartButton } from "@/components/Header";
+import { LegalFooter } from "@/components/legal/LegalFooter";
 import { OrderSuccessModal } from "@/components/OrderSuccessModal";
 import { ProductConfigurator } from "@/components/ProductConfigurator";
 import { ProductCard } from "@/components/ProductCard";
 import type { Product } from "@/components/ProductCard";
 import { SearchBar } from "@/components/SearchBar";
 import {
-  getMenuItemWorkstationType,
   isMenuItemOrderable,
   type ConfiguredMenuItem,
   type MenuSelection,
   type MenuState,
 } from "@/lib/menuStore";
-import { createOrder, useOrder, useOrders } from "@/lib/orderStore";
-import type { Order } from "@/lib/orderStore";
+import {
+  createOrder,
+  requestOrderPayment,
+  getStoredActiveOrderReference,
+  useCustomerOrder,
+} from "@/lib/orderStore";
+import type { CustomerOrder } from "@/lib/orderStore";
+import type { CustomerOrderReference } from "@/lib/orderTypes";
 import type { StorefrontAvailabilitySnapshot } from "@/lib/storefrontAvailabilityTypes";
 import { useStorefrontAvailability } from "@/lib/useStorefrontAvailability";
 import { useStorefrontMenu } from "@/lib/useStorefrontMenu";
@@ -40,15 +46,14 @@ export function HomeScreen() {
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
-  const [activeOrderId, setActiveOrderId] = useState<string | null>(() =>
-    getStoredActiveOrderId(),
+  const [activeOrderReference, setActiveOrderReference] =
+    useState<CustomerOrderReference | null>(() =>
+      getStoredActiveOrderReference(),
   );
   const [isViewingOrderDetail, setIsViewingOrderDetail] = useState(false);
   const [activeCategoryId, setActiveCategoryId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [isCartPinned, setIsCartPinned] = useState(
-    () => typeof window !== "undefined" && window.scrollY > 48,
-  );
+  const [isCartPinned, setIsCartPinned] = useState(false);
   const [availabilityMessage, setAvailabilityMessage] = useState("");
   const [isCheckingAvailability, setIsCheckingAvailability] = useState(false);
   const menu = useMemo(
@@ -62,14 +67,11 @@ export function HomeScreen() {
     }),
     [availability, storefrontMenu],
   );
-  const orders = useOrders();
-  const activeOrder = useOrder(activeOrderId);
+  const { order: activeOrder, setOrder: setActiveOrder } =
+    useCustomerOrder(activeOrderReference);
   const clientOrders = useMemo(
-    () =>
-      orders
-        .filter((order) => order.source === "client" && order.status !== "completed")
-        .sort((firstOrder, secondOrder) => getOrderTime(firstOrder) - getOrderTime(secondOrder)),
-    [orders],
+    () => (activeOrder && activeOrder.status !== "completed" ? [activeOrder] : []),
+    [activeOrder],
   );
   const activeCategories = useMemo(
     () =>
@@ -151,6 +153,7 @@ export function HomeScreen() {
       setIsCartPinned(window.scrollY > 48);
     }
 
+    updateCartPosition();
     window.addEventListener("scroll", updateCartPosition, { passive: true });
 
     return () => window.removeEventListener("scroll", updateCartPosition);
@@ -306,60 +309,74 @@ export function HomeScreen() {
   async function confirmOrder(customer: {
     name: string;
     phone: string;
+    email: string;
     comment?: string;
+    personalDataConsent: boolean;
+    idempotencyKey: string;
   }) {
+    if (!customer.personalDataConsent) {
+      throw new Error(
+        "Для оформления заказа необходимо согласие на обработку персональных данных.",
+      );
+    }
+
     setIsCheckingAvailability(true);
     setAvailabilityMessage("");
 
+    let freshAvailability: StorefrontAvailabilitySnapshot;
     try {
-      const freshAvailability = await refreshAvailability();
-      const problems = getAvailabilityProblems(
-        cartItems,
-        freshAvailability,
-        menu,
-      );
-
-      if (problems.length > 0) {
-        setAvailabilityMessage(formatAvailabilityProblems(problems));
-        setIsCheckingAvailability(false);
-        return;
-      }
+      freshAvailability = await refreshAvailability();
     } catch {
       setAvailabilityMessage(
         "Не удалось проверить наличие. Попробуйте ещё раз.",
       );
       setIsCheckingAvailability(false);
-      return;
+      throw new Error("Не удалось проверить наличие. Попробуйте ещё раз.");
     }
 
-    const order = createOrder({
-      customerName: customer.name,
-      phone: customer.phone,
-      comment: customer.comment,
-      items: cartItems.map((item) => ({
-        id: item.product.id,
-        name: item.product.name,
-        volume: item.summary,
-        modifiers: item.modifiers,
-        baristaType: getMenuItemWorkstationType(item.product),
-        categoryId: item.product.categoryId,
-        categoryName: menu.categories.find(
-          (category) => category.id === item.product.categoryId,
-        )?.name,
-        workingZoneId: item.product.workingZoneId,
-        type: item.product.kind,
-        quantity: item.quantity,
-      })),
-      total: cartTotal,
-    });
+    const problems = getAvailabilityProblems(cartItems, freshAvailability, menu);
+    if (problems.length > 0) {
+      const message = formatAvailabilityProblems(problems);
+      setAvailabilityMessage(message);
+      setIsCheckingAvailability(false);
+      throw new Error(message);
+    }
 
-    localStorage.setItem("kafema-active-order-id", order.id);
-    setActiveOrderId(order.id);
-    setIsViewingOrderDetail(true);
-    setActiveSection("orders");
-    setCartItems([]);
-    setIsCheckoutOpen(false);
-    setIsCheckingAvailability(false);
+    try {
+      const result = await createOrder(
+        {
+          customerName: customer.name,
+          phone: customer.phone,
+          email: customer.email,
+          comment: customer.comment,
+          items: cartItems.map((item) => ({
+            productId: item.product.id,
+            quantity: item.quantity,
+            selection: item.selection,
+          })),
+          personalDataConsent: customer.personalDataConsent,
+        },
+        customer.idempotencyKey,
+      );
+      setActiveOrderReference(result.reference);
+      setActiveOrder(result.order);
+      setIsViewingOrderDetail(true);
+      setActiveSection("orders");
+      setCartItems([]);
+      setIsCheckoutOpen(false);
+      if (result.order.paymentStatus) {
+        const returnPath = `/payment/return?orderId=${result.order.id}`;
+        try {
+          const payment = await requestOrderPayment(result.reference, true);
+          window.location.assign(payment.confirmationUrl || returnPath);
+        } catch {
+          // Order and access token are already saved. Recovery must reuse that order.
+          window.location.assign(returnPath);
+        }
+      }
+    } finally {
+      setIsCheckingAvailability(false);
+    }
   }
 
   function removeUnavailableItems() {
@@ -385,7 +402,6 @@ export function HomeScreen() {
   function handleNavigation(nextSection: BottomNavigationItem) {
     if (nextSection === "orders") {
       if (clientOrders.length === 1) {
-        setActiveOrderId(clientOrders[0].id);
         setIsViewingOrderDetail(true);
       } else {
         setIsViewingOrderDetail(false);
@@ -396,8 +412,7 @@ export function HomeScreen() {
   }
 
   function openOrder(orderId: string) {
-    localStorage.setItem("kafema-active-order-id", orderId);
-    setActiveOrderId(orderId);
+    if (activeOrderReference?.id !== orderId) return;
     setIsViewingOrderDetail(true);
   }
 
@@ -535,6 +550,8 @@ export function HomeScreen() {
           {activeSection === "sea" ? (
             <SeaSection onBackToMenu={() => setActiveSection("menu")} />
           ) : null}
+
+          <LegalFooter />
         </div>
       </main>
 
@@ -622,7 +639,7 @@ function ClientOrdersList({
 }: {
   onBackToMenu: () => void;
   onOpenOrder: (orderId: string) => void;
-  orders: Order[];
+  orders: CustomerOrder[];
 }) {
   return (
     <>
@@ -943,7 +960,7 @@ function normalizeCategoryKey(value: string) {
   return value.trim().toLowerCase();
 }
 
-function getClientOrderStatusText(status: Order["status"]) {
+function getClientOrderStatusText(status: CustomerOrder["status"]) {
   if (status === "in_progress") return "Готовится";
   if (status === "ready") return "Заказ готов";
   if (status === "completed") return "Выдан";
@@ -967,21 +984,6 @@ function formatItemsCount(count: number) {
   }
 
   return `${count} позиций`;
-}
-
-function getOrderTime(order: Order) {
-  const numericId = Number(order.id.replace(/\D/g, ""));
-
-  if (Number.isFinite(numericId) && numericId > 0) {
-    return numericId;
-  }
-
-  return 0;
-}
-
-function getStoredActiveOrderId() {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem("kafema-active-order-id");
 }
 
 function normalizeSearch(value: string) {

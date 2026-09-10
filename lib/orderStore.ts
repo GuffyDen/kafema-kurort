@@ -1,236 +1,274 @@
 "use client";
 
-import { useSyncExternalStore } from "react";
+import { useCallback, useEffect, useState } from "react";
+import {
+  PERSONAL_DATA_CONSENT_VERSION,
+  type BaristaOrder,
+  type CreateOrderInput,
+  type CustomerOrder,
+  type CustomerOrderReference,
+  type OrderStatus,
+} from "@/lib/orderTypes";
 
-export type OrderStatus = "new" | "in_progress" | "ready" | "completed";
+export type {
+  BaristaOrder,
+  CustomerOrder,
+  OrderItem,
+  OrderStatus,
+} from "@/lib/orderTypes";
 
-export type OrderItem = {
-  id: string;
-  name: string;
-  volume: string;
-  modifiers?: string[];
-  baristaType?: "drink" | "food";
-  categoryId?: string;
-  categoryName?: string;
-  workingZoneId?: string;
-  type?: string;
-  quantity: number;
-};
+const activeOrderStorageKey = "kafema-active-server-order-v1";
+const baristaTokenStorageKey = "tablo-barista-access-token-v1";
+const customerPollIntervalMs = 4_000;
+const baristaPollIntervalMs = 3_000;
 
-export type Order = {
-  id: string;
-  number: string;
-  customerName: string;
-  phone: string;
-  comment?: string;
-  createdAt: string;
-  completedAt?: string;
-  statusChangedAt?: number;
-  items: OrderItem[];
-  status: OrderStatus;
-  source?: "client" | "mock" | "iiko";
-  total?: number;
-};
-
-type CreateOrderInput = {
-  customerName: string;
-  phone: string;
-  comment?: string;
-  items: OrderItem[];
-  total?: number;
-};
-
-const storageKey = "kafema_orders";
-const legacyStorageKey = "kafema-orders-v1";
-const channelName = "kafema-orders";
-
-const initialOrders: Order[] = [];
-
-let orders = initialOrders;
-let hydrated = false;
-let channel: BroadcastChannel | null = null;
-
-const listeners = new Set<() => void>();
-
-function canUseBrowserStorage() {
-  return typeof window !== "undefined" && typeof localStorage !== "undefined";
-}
-
-function getChannel() {
-  if (typeof BroadcastChannel === "undefined") {
-    return null;
-  }
-
-  if (!channel) {
-    channel = new BroadcastChannel(channelName);
-    channel.addEventListener("message", (event: MessageEvent<Order[]>) => {
-      if (!Array.isArray(event.data)) {
-        return;
-      }
-
-      orders = event.data;
-      saveOrders(false);
-      notify();
-    });
-  }
-
-  return channel;
-}
-
-function hydrateOrders() {
-  if (hydrated || !canUseBrowserStorage()) {
-    return;
-  }
-
-  hydrated = true;
-
-  const savedOrders = localStorage.getItem(storageKey);
-  const legacyOrders = localStorage.getItem(legacyStorageKey);
-
-  if (!savedOrders && !legacyOrders) {
-    saveOrders(false);
-    return;
-  }
-
-  try {
-    const parsedOrders = JSON.parse(savedOrders ?? legacyOrders ?? "[]") as Order[];
-
-    if (Array.isArray(parsedOrders)) {
-      orders = parsedOrders;
-      saveOrders(false);
-    }
-  } catch {
-    orders = initialOrders;
-    saveOrders(false);
+export class OrderClientError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly code: string | null,
+  ) {
+    super(message);
   }
 }
 
-function saveOrders(shouldBroadcast = true) {
-  if (!canUseBrowserStorage()) {
-    return;
+export async function createOrder(
+  input: Omit<CreateOrderInput, "personalDataConsentVersion">,
+  idempotencyKey: string,
+) {
+  const response = await fetch("/api/orders", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Idempotency-Key": idempotencyKey,
+    },
+    body: JSON.stringify({
+      ...input,
+      personalDataConsentVersion: PERSONAL_DATA_CONSENT_VERSION,
+    }),
+    cache: "no-store",
+  });
+  const payload = await readJson<{
+    order?: CustomerOrder;
+    accessToken?: string;
+    error?: string;
+    code?: string;
+  }>(response);
+  if (!response.ok || !payload.order || !payload.accessToken) {
+    throw toClientError(response, payload);
   }
-
-  localStorage.setItem(storageKey, JSON.stringify(orders));
-
-  if (shouldBroadcast) {
-    getChannel()?.postMessage(orders);
-  }
+  const reference = { id: payload.order.id, accessToken: payload.accessToken };
+  storeActiveOrderReference(reference);
+  return { order: payload.order, reference };
 }
 
-function notify() {
-  listeners.forEach((listener) => listener());
-}
+export function useCustomerOrder(reference: CustomerOrderReference | null) {
+  const [order, setOrder] = useState<CustomerOrder | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(Boolean(reference));
 
-function setOrders(nextOrders: Order[]) {
-  orders = nextOrders;
-  saveOrders();
-  notify();
-}
-
-function getSnapshot() {
-  hydrateOrders();
-  return orders;
-}
-
-function getServerSnapshot() {
-  return initialOrders;
-}
-
-function subscribe(listener: () => void) {
-  hydrateOrders();
-  getChannel();
-  listeners.add(listener);
-
-  function syncStorage(event: StorageEvent) {
-    if (event.key !== storageKey || !event.newValue) {
+  useEffect(() => {
+    if (!reference) {
       return;
     }
 
-    try {
-      orders = JSON.parse(event.newValue) as Order[];
-      notify();
-    } catch {
-      // Ignore malformed storage updates.
+    let cancelled = false;
+    let timer: number | null = null;
+    const poll = async () => {
+      let shouldContinue = true;
+      try {
+        const response = await fetch(`/api/orders/${encodeURIComponent(reference.id)}`, {
+          headers: { Authorization: `Bearer ${reference.accessToken}` },
+          cache: "no-store",
+        });
+        const payload = await readJson<{ order?: CustomerOrder; error?: string }>(response);
+        if (!response.ok || !payload.order) throw toClientError(response, payload);
+        if (!cancelled) {
+          setOrder(payload.order);
+          setError(null);
+          shouldContinue = payload.order.status !== "completed";
+        }
+      } catch (pollError) {
+        if (!cancelled) {
+          setError(
+            pollError instanceof Error
+              ? pollError.message
+              : "Не удалось обновить статус заказа.",
+          );
+        }
+      } finally {
+        if (!cancelled && shouldContinue) {
+          setIsLoading(false);
+          timer = window.setTimeout(poll, customerPollIntervalMs);
+        } else if (!cancelled) {
+          setIsLoading(false);
+        }
+      }
+    };
+
+    void poll();
+    return () => {
+      cancelled = true;
+      if (timer !== null) window.clearTimeout(timer);
+    };
+  }, [reference]);
+
+  return {
+    order: reference ? order : null,
+    error: reference ? error : null,
+    isLoading: reference ? isLoading : false,
+    setOrder,
+  };
+}
+
+export function useBaristaOrders(accessToken: string) {
+  const [orders, setOrders] = useState<BaristaOrder[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState<number | null>(null);
+  const [isLoading, setIsLoading] = useState(Boolean(accessToken));
+
+  const refresh = useCallback(async () => {
+    if (!accessToken) return;
+    const response = await fetch("/api/bar/orders", {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      cache: "no-store",
+    });
+    const payload = await readJson<{ orders?: BaristaOrder[]; error?: string }>(response);
+    if (!response.ok || !payload.orders) throw toClientError(response, payload);
+    setOrders(payload.orders);
+    setError(null);
+    setStatus(response.status);
+  }, [accessToken]);
+
+  useEffect(() => {
+    if (!accessToken) {
+      return;
     }
-  }
+    let cancelled = false;
+    let timer: number | null = null;
+    const poll = async () => {
+      let shouldContinue = true;
+      try {
+        await refresh();
+      } catch (pollError) {
+        if (!cancelled) {
+          const clientError = pollError instanceof OrderClientError ? pollError : null;
+          setError(
+            pollError instanceof Error ? pollError.message : "Не удалось обновить очередь.",
+          );
+          setStatus(clientError?.status ?? 0);
+          shouldContinue = clientError?.status !== 401 && clientError?.status !== 503;
+        }
+      } finally {
+        if (!cancelled && shouldContinue) {
+          setIsLoading(false);
+          timer = window.setTimeout(poll, baristaPollIntervalMs);
+        } else if (!cancelled) {
+          setIsLoading(false);
+        }
+      }
+    };
+    void poll();
+    return () => {
+      cancelled = true;
+      if (timer !== null) window.clearTimeout(timer);
+    };
+  }, [accessToken, refresh]);
 
-  window.addEventListener("storage", syncStorage);
-
-  return () => {
-    listeners.delete(listener);
-    window.removeEventListener("storage", syncStorage);
-  };
-}
-
-function generateOrderNumber() {
-  const usedNumbers = new Set(orders.map((order) => order.number));
-  let nextNumber = String(Math.floor(Math.random() * 900) + 100);
-
-  while (usedNumbers.has(nextNumber)) {
-    nextNumber = String(Math.floor(Math.random() * 900) + 100);
-  }
-
-  return nextNumber;
-}
-
-function getCurrentTime() {
-  return new Intl.DateTimeFormat("ru-RU", {
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date());
-}
-
-export function createOrder(input: CreateOrderInput) {
-  hydrateOrders();
-
-  const order: Order = {
-    id: `order-${Date.now()}`,
-    number: generateOrderNumber(),
-    customerName: input.customerName,
-    phone: input.phone,
-    comment: input.comment?.trim() || undefined,
-    createdAt: getCurrentTime(),
-    statusChangedAt: Date.now(),
-    items: input.items,
-    status: "new",
-    source: "client",
-    total: input.total,
-  };
-
-  setOrders([...orders, order]);
-
-  return order;
-}
-
-export function updateOrderStatus(orderId: string, status: OrderStatus) {
-  hydrateOrders();
-  const targetOrder = orders.find((order) => order.id === orderId);
-
-  if (!targetOrder) {
-    return;
-  }
-
-  setOrders([
-    ...orders.filter((order) => order.id !== orderId),
-    {
-      ...targetOrder,
-      status,
-      statusChangedAt: Date.now(),
-      ...(status === "completed" ? { completedAt: new Date().toISOString() } : {}),
+  const updateStatus = useCallback(
+    async (orderId: string, nextStatus: OrderStatus) => {
+      const response = await fetch(
+        `/api/bar/orders/${encodeURIComponent(orderId)}/status`,
+        {
+          method: "PATCH",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ status: nextStatus }),
+          cache: "no-store",
+        },
+      );
+      const payload = await readJson<{ order?: BaristaOrder; error?: string }>(response);
+      if (!response.ok || !payload.order) throw toClientError(response, payload);
+      const updatedOrder = payload.order;
+      setOrders((current) =>
+        current.map((order) => (order.id === updatedOrder.id ? updatedOrder : order)),
+      );
+      return updatedOrder;
     },
-  ]);
+    [accessToken],
+  );
+
+  return {
+    orders: accessToken ? orders : [],
+    error: accessToken ? error : null,
+    status: accessToken ? status : null,
+    isLoading: accessToken ? isLoading : false,
+    refresh,
+    updateStatus,
+  };
 }
 
-export function useOrders() {
-  return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
-}
-
-export function useOrder(orderId: string | null) {
-  const currentOrders = useOrders();
-
-  if (!orderId) {
+export function getStoredActiveOrderReference(): CustomerOrderReference | null {
+  if (typeof window === "undefined") return null;
+  const value = localStorage.getItem(activeOrderStorageKey);
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value) as Partial<CustomerOrderReference>;
+    return typeof parsed.id === "string" && typeof parsed.accessToken === "string"
+      ? { id: parsed.id, accessToken: parsed.accessToken }
+      : null;
+  } catch {
     return null;
   }
+}
 
-  return currentOrders.find((order) => order.id === orderId) ?? null;
+export function storeActiveOrderReference(reference: CustomerOrderReference) {
+  localStorage.setItem(activeOrderStorageKey, JSON.stringify(reference));
+}
+
+export function getStoredBaristaAccessToken() {
+  if (typeof window === "undefined") return "";
+  return sessionStorage.getItem(baristaTokenStorageKey) ?? "";
+}
+
+export function storeBaristaAccessToken(token: string) {
+  if (!token) sessionStorage.removeItem(baristaTokenStorageKey);
+  else sessionStorage.setItem(baristaTokenStorageKey, token);
+}
+
+async function readJson<T>(response: Response): Promise<T> {
+  try {
+    return (await response.json()) as T;
+  } catch {
+    return {} as T;
+  }
+}
+
+function toClientError(
+  response: Response,
+  payload: { error?: string; code?: string },
+) {
+  return new OrderClientError(
+    payload.error || "Сервис заказов временно недоступен.",
+    response.status,
+    payload.code ?? null,
+  );
+}
+
+export async function requestOrderPayment(reference: CustomerOrderReference, create = false) {
+  const response = await fetch(`/api/orders/${encodeURIComponent(reference.id)}/payment`, {
+    method: create ? "POST" : "GET",
+    headers: { Authorization: `Bearer ${reference.accessToken}` },
+    cache: "no-store",
+  });
+  const payload = await readJson<{
+    paymentStatus?: import("@/lib/orderTypes").PaymentStatus;
+    confirmationUrl?: string | null;
+    error?: string;
+    code?: string;
+  }>(response);
+  if (!response.ok || !payload.paymentStatus) throw toClientError(response, payload);
+  return payload;
 }

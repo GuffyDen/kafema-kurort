@@ -1,8 +1,12 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { createClient } from "redis";
 import type { StorefrontPersistence } from "@/lib/storefrontTypes";
 
 const localDirectory = path.join(process.cwd(), ".data");
+type DirectRedisClient = ReturnType<typeof createDirectRedisClient>;
+let directRedisClientPromise: Promise<DirectRedisClient> | null = null;
+let directRedisClientUrl: string | null = null;
 
 export const storefrontRedisKeys = {
   menu: "tablo:kafema-sanatornaya:storefront-menu:v1",
@@ -15,8 +19,9 @@ export class StorefrontPersistenceError extends Error {}
 
 export function getStorefrontPersistence(): StorefrontPersistence {
   const { url, token } = getRedisCredentials();
+  const directUrl = getDirectRedisUrl();
 
-  if (url && token) {
+  if ((url && token) || directUrl) {
     return {
       mode: "redis",
       writable: true,
@@ -37,7 +42,7 @@ export function getStorefrontPersistence(): StorefrontPersistence {
     mode: "unconfigured",
     writable: false,
     warning:
-      "Постоянное хранилище не подключено. Добавьте UPSTASH_REDIS_REST_URL и UPSTASH_REDIS_REST_TOKEN.",
+      "Постоянное хранилище не подключено. Добавьте REDIS_URL или Upstash/KV REST credentials.",
   };
 }
 
@@ -117,10 +122,17 @@ export async function releaseStorefrontLock(key: string) {
 export async function executeRedisCommand(command: string[]) {
   const { url, token } = getRedisCredentials();
 
-  if (!url || !token) {
-    throw new StorefrontPersistenceError("Redis не настроен.");
+  if (url && token) {
+    return executeRedisRestCommand(url, token, command);
   }
 
+  const directUrl = getDirectRedisUrl();
+  if (directUrl) return executeDirectRedisCommand(directUrl, command);
+
+  throw new StorefrontPersistenceError("Redis не настроен.");
+}
+
+async function executeRedisRestCommand(url: string, token: string, command: string[]) {
   const response = await fetch(url, {
     method: "POST",
     headers: {
@@ -145,6 +157,55 @@ export async function executeRedisCommand(command: string[]) {
   return payload.result;
 }
 
+async function executeDirectRedisCommand(url: string, command: string[]) {
+  try {
+    const client = await getDirectRedisClient(url);
+    return await client.sendCommand(command);
+  } catch {
+    throw new StorefrontPersistenceError("Redis временно недоступен.");
+  }
+}
+
+function getDirectRedisClient(url: string) {
+  if (directRedisClientPromise && directRedisClientUrl === url) {
+    return directRedisClientPromise;
+  }
+
+  if (directRedisClientPromise && directRedisClientUrl !== url) {
+    void directRedisClientPromise.then((client) => client.destroy()).catch(() => undefined);
+  }
+
+  directRedisClientUrl = url;
+  const client = createDirectRedisClient(url);
+  // A listener is mandatory in node-redis. Provider details must not reach logs.
+  client.on("error", () => undefined);
+  const connection = client.connect().then(() => {
+    client.unref();
+    return client;
+  }).catch((error) => {
+    if (directRedisClientUrl === url) {
+      directRedisClientPromise = null;
+      directRedisClientUrl = null;
+    }
+    if (client.isOpen) client.destroy();
+    throw error;
+  });
+  directRedisClientPromise = connection;
+  return connection;
+}
+
+function createDirectRedisClient(url: string) {
+  return createClient({
+    url,
+    disableOfflineQueue: true,
+    socket: {
+      connectTimeout: 10_000,
+      reconnectStrategy: (retries) =>
+        retries < 3 ? Math.min(250 * 2 ** retries, 1_000) : false,
+    },
+  });
+}
+
 function getRedisCredentials() {
   return {
     url:
@@ -154,6 +215,18 @@ function getRedisCredentials() {
       process.env.UPSTASH_REDIS_REST_TOKEN?.trim() ||
       process.env.KV_REST_API_TOKEN?.trim(),
   };
+}
+
+function getDirectRedisUrl() {
+  const value = process.env.REDIS_URL?.trim();
+  if (!value) return undefined;
+
+  try {
+    const protocol = new URL(value).protocol;
+    return protocol === "redis:" || protocol === "rediss:" ? value : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 async function readLocalValue(fileName: string) {

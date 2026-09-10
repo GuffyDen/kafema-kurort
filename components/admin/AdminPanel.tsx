@@ -1,11 +1,12 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
-  updateOrderStatus,
-  useOrders,
-  type Order,
+  getStoredBaristaAccessToken,
+  storeBaristaAccessToken,
+  useBaristaOrders,
+  type BaristaOrder,
   type OrderItem,
   type OrderStatus,
 } from "@/lib/orderStore";
@@ -69,7 +70,14 @@ const timerThresholds: Record<BoardStatus, { warning: number; danger: number }> 
   };
 
 export function AdminPanel() {
-  const orders = useOrders();
+  const [accessToken, setAccessToken] = useState(() => getStoredBaristaAccessToken());
+  const [draftAccessToken, setDraftAccessToken] = useState(accessToken);
+  const { orders, error, status, isLoading, updateStatus } =
+    useBaristaOrders(accessToken);
+  const [updatingOrderIds, setUpdatingOrderIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [statusUpdateError, setStatusUpdateError] = useState("");
   const [activeView, setActiveView] = useState<BarView>("queue");
   const [archiveSearch, setArchiveSearch] = useState("");
   const [archiveDate, setArchiveDate] = useState(() => getLocalDateKey(new Date()));
@@ -85,6 +93,34 @@ export function AdminPanel() {
 
     return () => window.clearInterval(timer);
   }, []);
+
+  function submitAccess(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const token = draftAccessToken.trim();
+    storeBaristaAccessToken(token);
+    setAccessToken(token);
+  }
+
+  async function advanceOrder(orderId: string, nextStatus: OrderStatus) {
+    if (updatingOrderIds.has(orderId)) return;
+    setStatusUpdateError("");
+    setUpdatingOrderIds((current) => new Set(current).add(orderId));
+    try {
+      await updateStatus(orderId, nextStatus);
+    } catch (updateError) {
+      setStatusUpdateError(
+        updateError instanceof Error
+          ? updateError.message
+          : "Не удалось изменить статус заказа.",
+      );
+    } finally {
+      setUpdatingOrderIds((current) => {
+        const next = new Set(current);
+        next.delete(orderId);
+        return next;
+      });
+    }
+  }
 
   useEffect(() => {
     function handleStorageChange(event: StorageEvent) {
@@ -139,6 +175,18 @@ export function AdminPanel() {
     [visibleOrders],
   );
 
+  if (!accessToken || status === 401 || status === 503) {
+    return (
+      <BaristaAccessGate
+        error={error}
+        isLoading={isLoading}
+        token={draftAccessToken}
+        onChange={setDraftAccessToken}
+        onSubmit={submitAccess}
+      />
+    );
+  }
+
   return (
     <main className="min-h-screen bg-[#F7F7F7] px-6 py-5 text-[#1A1A1A] lg:px-8">
       <div className="mx-auto flex h-full min-h-[calc(100vh-40px)] w-full max-w-7xl flex-col gap-5">
@@ -189,6 +237,15 @@ export function AdminPanel() {
           </div>
         </header>
 
+        {error || statusUpdateError ? (
+          <p
+            role="alert"
+            className="rounded-[18px] border border-[#F0C9C5] bg-[#FFF4F2] px-4 py-3 text-sm font-bold text-[#8F2F24]"
+          >
+            {statusUpdateError || `${error} Показана последняя загруженная очередь.`}
+          </p>
+        ) : null}
+
         {activeView === "queue" ? (
           <section className="grid min-h-0 flex-1 grid-cols-3 gap-5">
             {boardColumns.map((column) => (
@@ -200,6 +257,8 @@ export function AdminPanel() {
                 orders={visibleOrders.filter(
                   (order) => order.status === column.status,
                 )}
+                updatingOrderIds={updatingOrderIds}
+                onAdvance={advanceOrder}
               />
             ))}
           </section>
@@ -215,6 +274,59 @@ export function AdminPanel() {
           />
         )}
       </div>
+    </main>
+  );
+}
+
+function BaristaAccessGate({
+  error,
+  isLoading,
+  onChange,
+  onSubmit,
+  token,
+}: {
+  error: string | null;
+  isLoading: boolean;
+  onChange: (value: string) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  token: string;
+}) {
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-[#F7F7F7] px-5 py-8 text-[#1A1A1A]">
+      <form
+        className="w-full max-w-md rounded-[30px] bg-white p-6 shadow-[0_18px_42px_rgba(26,26,26,0.08)]"
+        onSubmit={onSubmit}
+      >
+        <div className="flex items-center gap-3">
+          <Image alt="Tablo" height={40} src="/tablo-logo.png" width={40} />
+          <div>
+            <h1 className="text-2xl font-bold">Доступ бариста</h1>
+            <p className="text-sm font-semibold text-[#777777]">Рабочее место Tablo</p>
+          </div>
+        </div>
+        <label className="mt-6 block">
+          <span className="text-sm font-bold">Ключ доступа</span>
+          <input
+            autoComplete="off"
+            className="mt-2 h-12 w-full rounded-[18px] border border-[#E8E8E8] px-4 outline-none transition focus:border-[#E30613]"
+            type="password"
+            value={token}
+            onChange={(event) => onChange(event.target.value)}
+          />
+        </label>
+        {error ? (
+          <p className="mt-3 text-sm font-bold text-[#8F2F24]" role="alert">
+            {error}
+          </p>
+        ) : null}
+        <button
+          className="mt-5 h-12 w-full rounded-[18px] bg-[#E30613] font-bold text-white disabled:cursor-not-allowed disabled:opacity-60"
+          disabled={isLoading || token.trim().length === 0}
+          type="submit"
+        >
+          {isLoading ? "Проверяем..." : "Открыть очередь"}
+        </button>
+      </form>
     </main>
   );
 }
@@ -243,11 +355,15 @@ function OrderColumn({
   column,
   orders,
   now,
+  onAdvance,
+  updatingOrderIds,
 }: {
   cardSize: BaristaCardSize;
   column: BoardColumn;
-  orders: Order[];
+  orders: BaristaOrder[];
   now: number;
+  onAdvance: (orderId: string, status: OrderStatus) => Promise<void>;
+  updatingOrderIds: Set<string>;
 }) {
   const size = getCardSizeClasses(cardSize);
 
@@ -278,6 +394,8 @@ function OrderColumn({
               order={order}
               column={column}
               now={now}
+              isUpdating={updatingOrderIds.has(order.id)}
+              onAdvance={onAdvance}
             />
           ))
         ) : (
@@ -295,11 +413,15 @@ function OrderCard({
   order,
   column,
   now,
+  isUpdating,
+  onAdvance,
 }: {
   cardSize: BaristaCardSize;
-  order: Order;
+  order: BaristaOrder;
   column: BoardColumn;
   now: number;
+  isUpdating: boolean;
+  onAdvance: (orderId: string, status: OrderStatus) => Promise<void>;
 }) {
   const elapsedSeconds = getElapsedSeconds(order, now);
   const timerTone = getTimerTone(column.status, elapsedSeconds);
@@ -391,10 +513,11 @@ function OrderCard({
       <div className={`${size.actionMargin} flex justify-end`}>
         <button
           type="button"
-          onClick={() => updateOrderStatus(order.id, column.nextStatus)}
-          className={`${size.actionButton} rounded-[18px] bg-[#E30613] font-bold text-white shadow-[0_12px_24px_rgba(227,6,19,0.2)]`}
+          onClick={() => void onAdvance(order.id, column.nextStatus)}
+          disabled={isUpdating}
+          className={`${size.actionButton} rounded-[18px] bg-[#E30613] font-bold text-white shadow-[0_12px_24px_rgba(227,6,19,0.2)] disabled:cursor-not-allowed disabled:opacity-60`}
         >
-          {column.actionLabel}
+          {isUpdating ? "Сохраняем..." : column.actionLabel}
         </button>
       </div>
     </article>
@@ -414,7 +537,7 @@ function ArchiveView({
   cardSize: BaristaCardSize;
   onDateChange: (value: string) => void;
   onSearch: (value: string) => void;
-  orders: Order[];
+  orders: BaristaOrder[];
   search: string;
   selectedDateCount: number;
 }) {
@@ -551,7 +674,7 @@ function ArchiveOrderRow({
   cardSize: BaristaCardSize;
   isExpanded: boolean;
   onToggle: () => void;
-  order: Order;
+  order: BaristaOrder;
 }) {
   const groupedItems = groupOrderItems(order.items);
   const itemCount = order.items.reduce((total, item) => total + item.quantity, 0);
@@ -852,7 +975,7 @@ function groupOrderItems(items: OrderItem[]) {
   );
 }
 
-function filterArchiveOrders(orders: Order[], search: string) {
+function filterArchiveOrders(orders: BaristaOrder[], search: string) {
   const query = normalizeSearch(search);
 
   if (!query) return orders;
@@ -864,11 +987,11 @@ function filterArchiveOrders(orders: Order[], search: string) {
   );
 }
 
-function filterOrdersByArchiveDate(orders: Order[], dateKey: string) {
+function filterOrdersByArchiveDate(orders: BaristaOrder[], dateKey: string) {
   return orders.filter((order) => getOrderArchiveDateKey(order) === dateKey);
 }
 
-function getOrderArchiveDateKey(order: Order) {
+function getOrderArchiveDateKey(order: BaristaOrder) {
   return getArchiveValueDateKey(order.completedAt ?? order.statusChangedAt ?? order.createdAt);
 }
 
@@ -956,7 +1079,7 @@ function formatMoney(value?: number) {
   return `${value.toLocaleString("ru-RU")} ₽`;
 }
 
-function formatOrderSource(source?: Order["source"]) {
+function formatOrderSource(source?: BaristaOrder["source"]) {
   if (source === "client") return "Онлайн";
   if (source === "iiko") return "IIKO";
   if (source === "mock") return "Тест";
@@ -1077,21 +1200,24 @@ function hasFoodSignal(value: string) {
   ].some((keyword) => value.includes(keyword));
 }
 
-function getElapsedSeconds(order: Order, now: number) {
+function getElapsedSeconds(order: BaristaOrder, now: number) {
   if (isSeedOrder(order) && !order.statusChangedAt) {
     return 0;
   }
 
-  const startedAt = order.statusChangedAt ?? parseCreatedAt(order.createdAt, now);
+  const statusChangedAt = Date.parse(order.statusChangedAt);
+  const startedAt = Number.isFinite(statusChangedAt)
+    ? statusChangedAt
+    : parseCreatedAt(order.createdAt, now);
 
   return Math.max(0, Math.floor((now - startedAt) / 1000));
 }
 
-function isSeedOrder(order: Order) {
+function isSeedOrder(order: BaristaOrder) {
   return /^order-00\d+$/.test(order.id);
 }
 
-function isDemoOrder(order: Order) {
+function isDemoOrder(order: BaristaOrder) {
   const values = [
     order.id,
     order.number,

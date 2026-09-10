@@ -148,10 +148,12 @@ source menu.
 
 ## Storage modes
 
-- **Production with Redis:** shared persistent snapshots, overrides and locks.
-- **Development without Redis:** `.data/*.json` files are used locally.
+- **Production with Redis:** shared persistent snapshots, overrides, locks and
+  tenant-isolated server orders.
+- **Development without Redis:** `.data/*.json` files are used locally,
+  including the server order repository fallback.
 - **Production without Redis:** persistence is reported as unconfigured;
-  override writes and durable snapshots are unavailable.
+  order creation and other persistence writes fail explicitly.
 
 Required production storage variables:
 
@@ -159,6 +161,7 @@ Required production storage variables:
 UPSTASH_REDIS_REST_URL
 UPSTASH_REDIS_REST_TOKEN
 CRON_SECRET
+BARISTA_ACCESS_TOKEN
 ```
 
 ## iiko requests
@@ -174,9 +177,11 @@ Only server-side modules call iiko. Current storefront requests are:
 | `POST /api/2/menu/by_id` | Read External Menu contents | No |
 | `POST /api/1/stop_lists` | Read current availability | No |
 
-Redis operations are limited to menu snapshots, overrides, stop-list snapshots
-and the short-lived stop-list refresh lock. The client has no Redis or iiko
-credentials.
+Redis operations cover menu snapshots, overrides, stop-list snapshots, the
+short-lived stop-list refresh lock, and per-order records with a tenant-specific
+sorted index. The client has no Redis or iiko credentials. Customer order reads
+require an unguessable per-order token; barista list and status APIs require the
+server-configured `BARISTA_ACCESS_TOKEN`.
 
 ## Admin diagnostics
 
