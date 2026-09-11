@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -149,6 +150,7 @@ const navItems: Array<{ id: AdminSection; label: string; hint: string }> = [
 const IIKO_DIAGNOSTICS_FRESHNESS_MS = 5 * 60 * 1000;
 
 export function ManagePanel() {
+  const router = useRouter();
   const [activeSection, setActiveSection] = useState<AdminSection>("connections");
   const [isInitializingIiko, setIsInitializingIiko] = useState(true);
   const [isCheckingIiko, setIsCheckingIiko] = useState(false);
@@ -162,6 +164,8 @@ export function ManagePanel() {
   const [webhookStatus, setWebhookStatus] = useState<IikoWebhookStatus | null>(null);
   const [webhookCheckedAt, setWebhookCheckedAt] = useState<Date | null>(null);
   const [showEnvModeWarning, setShowEnvModeWarning] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [logoutError, setLogoutError] = useState("");
   const [baristaSettings, setBaristaSettingsState] = useState<BaristaSettings>(() =>
     getStoredBaristaSettings(),
   );
@@ -401,6 +405,30 @@ export function ManagePanel() {
     saveBaristaSettings(settings);
   }
 
+  async function logout() {
+    if (isLoggingOut) return;
+    setLogoutError("");
+    setIsLoggingOut(true);
+    try {
+      const response = await fetch("/api/auth/admin/logout", {
+        method: "POST",
+        cache: "no-store",
+      });
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => ({}))) as {
+          error?: string;
+        };
+        throw new Error(payload.error || "Не удалось выйти.");
+      }
+      router.refresh();
+    } catch (error) {
+      setLogoutError(
+        error instanceof Error ? error.message : "Не удалось выйти.",
+      );
+      setIsLoggingOut(false);
+    }
+  }
+
   return (
     <main className="min-h-screen bg-[#F7F7F7] text-[#1A1A1A]">
       <div className="mx-auto grid min-h-screen max-w-[1440px] grid-cols-1 lg:grid-cols-[280px_1fr]">
@@ -460,8 +488,27 @@ export function ManagePanel() {
                 {getPageDescription(activeSection)}
               </p>
             </div>
-            <StatusPill connected={Boolean(iikoDiagnostics?.ok || iikoResult)} />
+            <div className="flex flex-wrap items-center gap-2">
+              <StatusPill connected={Boolean(iikoDiagnostics?.ok || iikoResult)} />
+              <button
+                className="min-h-11 rounded-2xl bg-white px-4 text-sm font-bold text-[#777777] shadow-[0_12px_28px_rgba(26,26,26,0.06)] transition hover:text-[#E30613] disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={isLoggingOut}
+                onClick={() => void logout()}
+                type="button"
+              >
+                {isLoggingOut ? "Выходим..." : "Выйти"}
+              </button>
+            </div>
           </header>
+
+          {logoutError ? (
+            <p
+              className="mb-5 rounded-2xl border border-[#F0C9C5] bg-[#FFF4F2] px-4 py-3 text-sm font-bold text-[#8F2F24]"
+              role="alert"
+            >
+              {logoutError}
+            </p>
+          ) : null}
 
           {activeSection === "connections" ? (
             <ConnectionsSection

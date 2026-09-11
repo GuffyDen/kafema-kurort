@@ -5,10 +5,16 @@ import {
 } from "@/lib/storefrontOverrideStore";
 import { getAdminStorefront } from "@/lib/storefrontAdminService";
 import { parseCategoryOrder } from "@/lib/storefrontValidation";
+import { rejectUnauthorizedAdminRequest } from "@/lib/serverAdminRoute";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
+  const rejection = await rejectUnauthorizedAdminRequest(request, {
+    requireSameOrigin: true,
+  });
+  if (rejection) return rejection;
+
   let order: ReturnType<typeof parseCategoryOrder>;
 
   try {

@@ -76,6 +76,10 @@ test("bootstrap supports admin and requires an explicit replace path", async () 
     now: "2026-01-01T00:00:00.000Z",
   };
   assert.equal((await bootstrapAuthAccount(base)).status, "created");
+  assert.deepEqual(await bootstrapAuthAccount(base), {
+    status: "exists",
+    role: "admin",
+  });
   const replacement = await bootstrapAuthAccount({
     ...base,
     username: "admin-new",
@@ -138,6 +142,35 @@ test("production bootstrap sends credentials through OIDC without a Redis URL", 
   });
   assert.equal("redisUrl" in body, false);
   assert.equal("REDIS_URL" in body, false);
+});
+
+test("production bootstrap sends the explicit Admin role and confirmation", async () => {
+  let request;
+  const result = await bootstrapAuthAccountViaVercel({
+    fetchImpl: async (url, init) => {
+      request = { url, init };
+      return Response.json(
+        { status: "created", role: "admin", credentialRevision: 1 },
+        { status: 201 },
+      );
+    },
+    productionUrl: "kafema-kurort.example",
+    oidcToken: "short-lived-oidc-token",
+    role: "admin",
+    username: "admin",
+    password: "remote-admin-password-not-real",
+    replace: false,
+  });
+
+  assert.equal(result.role, "admin");
+  assert.deepEqual(JSON.parse(request.init.body), {
+    role: "admin",
+    username: "admin",
+    password: "remote-admin-password-not-real",
+    replace: false,
+    confirmation: "CREATE admin",
+  });
+  assert.equal("REDIS_URL" in request.init.headers, false);
 });
 
 test("production bootstrap refuses a non-HTTPS destination", async () => {

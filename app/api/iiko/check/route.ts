@@ -7,6 +7,7 @@ import {
   type IikoDiagnosticSnapshot,
   writeLastSuccessfulIikoDiagnostics,
 } from "@/lib/iikoDiagnosticsStore";
+import { rejectUnauthorizedAdminRequest } from "@/lib/serverAdminRoute";
 
 export const dynamic = "force-dynamic";
 
@@ -21,6 +22,9 @@ let cachedCheck:
 let inFlightCheck: Promise<IikoReadOnlyCheckResult> | null = null;
 
 export async function GET(request: Request) {
+  const rejection = await rejectUnauthorizedAdminRequest(request);
+  if (rejection) return rejection;
+
   if (shouldReadStoredResult(request)) {
     const stored = await readStoredDiagnostics();
 
@@ -46,6 +50,11 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const rejection = await rejectUnauthorizedAdminRequest(request, {
+    requireSameOrigin: true,
+  });
+  if (rejection) return rejection;
+
   const { cache, check } = await getReadOnlyCheck({
     refresh: shouldRefresh(request),
   });

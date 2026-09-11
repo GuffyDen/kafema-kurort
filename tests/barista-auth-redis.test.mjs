@@ -85,6 +85,7 @@ Module._extensions[".ts"] = (module, filename) =>
 const accountRepository = load("../lib/serverAuthAccountRepository.ts");
 const authModulePath = path.join(root, "lib/serverBaristaAuth.ts");
 const auth = load(authModulePath);
+const adminAuth = load(path.join(root, "lib/serverAdminAuth.ts"));
 
 function passwordHash(password) {
   const salt = randomBytes(16);
@@ -176,6 +177,17 @@ test("shared account model supports admin and refuses implicit overwrite", async
   });
   assert.equal(admin.role, "admin");
   assert.equal((await accountRepository.getAuthAccount("admin")).username, "admin");
+  const { token } = await adminAuth.createAdminSession(admin);
+  const adminRequest = new Request("https://test.example/api/admin/storefront", {
+    headers: { Cookie: `tablo_admin_session=${token}` },
+  });
+  assert.equal((await adminAuth.authorizeAdminRequest(adminRequest)).ok, true);
+  assert.equal((await auth.authorizeBaristaRequest(adminRequest)).ok, false);
+  const sessionRecord = [...redis.entries()].find(([key]) =>
+    key.includes(":admin-session:v1:"),
+  )?.[1]?.value;
+  assert.match(sessionRecord, /"role":"admin"/);
+  assert.equal(sessionRecord.includes(admin.passwordHash), false);
   await assert.rejects(
     accountRepository.createAuthAccount({
       role: "admin",

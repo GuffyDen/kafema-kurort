@@ -15,10 +15,16 @@ import {
   saveTableStandLayout,
   StorefrontPersistenceError,
 } from "@/lib/tenantSettingsStore";
+import { rejectUnauthorizedAdminRequest } from "@/lib/serverAdminRoute";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
+  const rejection = await rejectUnauthorizedAdminRequest(request, {
+    requireSameOrigin: true,
+  });
+  if (rejection) return rejection;
+
   let uploadedUrl: string | null = null;
 
   try {
@@ -113,6 +119,11 @@ export async function POST(request: Request) {
 }
 
 export async function PATCH(request: Request) {
+  const rejection = await rejectUnauthorizedAdminRequest(request, {
+    requireSameOrigin: true,
+  });
+  if (rejection) return rejection;
+
   try {
     const body: unknown = await request.json();
     const templateId = getStringField(body, "templateId");

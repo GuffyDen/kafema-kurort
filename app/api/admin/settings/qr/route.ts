@@ -5,10 +5,14 @@ import {
   saveQrTargetUrl,
   StorefrontPersistenceError,
 } from "@/lib/tenantSettingsStore";
+import { rejectUnauthorizedAdminRequest } from "@/lib/serverAdminRoute";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
+  const rejection = await rejectUnauthorizedAdminRequest(request);
+  if (rejection) return rejection;
+
   try {
     const { document, persistence } = await readTenantSettings();
     const savedUrl = getValidUrl(document.qrTargetUrl);
@@ -44,6 +48,11 @@ export async function GET(request: Request) {
 }
 
 export async function PATCH(request: Request) {
+  const rejection = await rejectUnauthorizedAdminRequest(request, {
+    requireSameOrigin: true,
+  });
+  if (rejection) return rejection;
+
   try {
     const body: unknown = await request.json();
     const qrTargetUrl =

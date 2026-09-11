@@ -4,13 +4,19 @@ import {
   StorefrontPersistenceError,
 } from "@/lib/storefrontOverrideStore";
 import { getAdminStorefront } from "@/lib/storefrontAdminService";
+import { rejectUnauthorizedAdminRequest } from "@/lib/serverAdminRoute";
 
 export const dynamic = "force-dynamic";
 
 export async function DELETE(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ itemId: string }> },
 ) {
+  const rejection = await rejectUnauthorizedAdminRequest(request, {
+    requireSameOrigin: true,
+  });
+  if (rejection) return rejection;
+
   try {
     const { itemId } = await context.params;
     await deleteProductOverride(itemId);

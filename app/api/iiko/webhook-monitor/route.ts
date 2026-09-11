@@ -2,16 +2,25 @@ import {
   clearIikoWebhookJournal,
   getIikoWebhookState,
 } from "@/lib/iikoWebhookStore";
+import { rejectUnauthorizedAdminRequest } from "@/lib/serverAdminRoute";
 
 export const dynamic = "force-dynamic";
 
 const defaultAppUrl = "https://kafema-kurort.vercel.app";
 
-export async function GET() {
+export async function GET(request: Request) {
+  const rejection = await rejectUnauthorizedAdminRequest(request);
+  if (rejection) return rejection;
+
   return Response.json(createMonitorStatus());
 }
 
-export async function DELETE() {
+export async function DELETE(request: Request) {
+  const rejection = await rejectUnauthorizedAdminRequest(request, {
+    requireSameOrigin: true,
+  });
+  if (rejection) return rejection;
+
   clearIikoWebhookJournal();
 
   return Response.json({

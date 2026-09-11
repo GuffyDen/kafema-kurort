@@ -4,10 +4,16 @@ import {
 } from "@vercel/blob/client";
 import { TABLE_STAND_MAX_FILE_SIZE } from "@/lib/qr/tableStand";
 import { getTableStandBlobPathPrefix } from "@/lib/tenantSettingsStore";
+import { rejectUnauthorizedAdminRequest } from "@/lib/serverAdminRoute";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
+  const rejection = await rejectUnauthorizedAdminRequest(request, {
+    requireSameOrigin: true,
+  });
+  if (rejection) return rejection;
+
   try {
     const body = (await request.json()) as HandleUploadBody;
     const uploadPathPrefix = getTableStandBlobPathPrefix();

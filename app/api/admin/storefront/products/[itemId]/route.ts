@@ -5,6 +5,7 @@ import {
 } from "@/lib/storefrontOverrideStore";
 import { getAdminStorefront } from "@/lib/storefrontAdminService";
 import { parseProductOverridePatch } from "@/lib/storefrontValidation";
+import { rejectUnauthorizedAdminRequest } from "@/lib/serverAdminRoute";
 
 export const dynamic = "force-dynamic";
 
@@ -12,6 +13,11 @@ export async function PATCH(
   request: Request,
   context: { params: Promise<{ itemId: string }> },
 ) {
+  const rejection = await rejectUnauthorizedAdminRequest(request, {
+    requireSameOrigin: true,
+  });
+  if (rejection) return rejection;
+
   try {
     const { itemId } = await context.params;
     const patch = parseProductOverridePatch(await request.json());

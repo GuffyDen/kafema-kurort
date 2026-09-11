@@ -178,9 +178,9 @@ Only server-side modules call iiko. Current storefront requests are:
 
 Redis operations cover menu snapshots, overrides, stop-list snapshots, the
 short-lived stop-list refresh lock, per-order records with a tenant-specific
-sorted index, Barista sessions and the Barista login rate limit. The client has
+sorted index, role-specific staff sessions and login rate limits. The client has
 no Redis or iiko credentials. Customer order reads require an unguessable
-per-order token. Barista list and status APIs require a server-validated Barista
+per-order token. Barista and Admin APIs require a server-validated, role-specific
 session in an HttpOnly cookie.
 
 ## Barista authentication
@@ -195,9 +195,9 @@ tablo:tenant:<tenantId>:auth-account:v1:<role>
 
 The JSON document contains `role`, normalized `username`, a scrypt
 `passwordHash`, `credentialRevision`, `createdAt` and `updatedAt`. The shared
-model accepts `barista` and `admin`; no Admin login is enabled yet. Passwords are
-never stored. `BARISTA_USERNAME`, `BARISTA_PASSWORD_HASH` and
-`AUTH_SESSION_SECRET` are not runtime variables.
+model and session core accept `barista` and `admin`. Passwords are never stored.
+Usernames, passwords, password hashes and a session-signing secret are not
+runtime variables.
 
 Create the first account only from a trusted local terminal:
 
@@ -217,6 +217,16 @@ printed. An intentional future replacement still requires `--replace` and the
 phrase `REPLACE barista`; replacement increments `credentialRevision` through
 the existing compare-and-set repository operation.
 
+The Admin account uses the same protected bootstrap route and storage model:
+
+```bash
+npm run auth:bootstrap:admin:production
+```
+
+It asks for username, the hidden password twice and `CREATE admin`. A second
+bootstrap does not overwrite the account. An intentional replacement requires
+the underlying `--replace` flag and the phrase `REPLACE admin`.
+
 The login route creates a random 12-hour session and stores only its SHA-256
 token fingerprint in a tenant-scoped Redis key. The session records the current
 account `credentialRevision`. Every session check compares that value with the
@@ -226,6 +236,15 @@ cookie that is also `Secure` in production. Logout deletes the Redis session
 and expires the cookie. Repeated failed logins from one client address are
 temporarily limited in Redis for 15 minutes; no username, password or client
 address is stored in the rate-limit key.
+
+`/admin` performs its Admin-session check before rendering the management UI.
+The Admin and Barista cookies use the same session document format but distinct
+role-bound cookie and Redis namespaces. A Barista session therefore cannot open
+`/admin` or call Admin APIs. All `/api/admin/**` handlers, the Admin iiko check
+and the iiko webhook monitor require an Admin session; state-changing handlers
+also validate the request Origin. Admin logout is available in the management
+header. A future credentials screen can use the existing account repository and
+`credentialRevision` without changing the session format.
 
 ## Admin diagnostics
 

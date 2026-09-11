@@ -5,6 +5,7 @@ import {
 } from "@/lib/storefrontOverrideStore";
 import { getAdminStorefront } from "@/lib/storefrontAdminService";
 import { parseCategoryOverridePatch } from "@/lib/storefrontValidation";
+import { rejectUnauthorizedAdminRequest } from "@/lib/serverAdminRoute";
 
 export const dynamic = "force-dynamic";
 
@@ -12,6 +13,11 @@ export async function PATCH(
   request: Request,
   context: { params: Promise<{ categoryId: string }> },
 ) {
+  const rejection = await rejectUnauthorizedAdminRequest(request, {
+    requireSameOrigin: true,
+  });
+  if (rejection) return rejection;
+
   try {
     const { categoryId } = await context.params;
     const patch = parseCategoryOverridePatch(await request.json());
