@@ -1,12 +1,12 @@
 import { noStoreHeaders, orderApiErrorResponse } from "@/lib/orderApiResponse";
-import { authorizeBaristaRequest } from "@/lib/serverOrderSecurity";
+import { authorizeBaristaRequest } from "@/lib/serverBaristaAuth";
 import { listBaristaOrders } from "@/lib/serverOrderService";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export async function GET(request: Request) {
-  const authorization = authorizeBaristaRequest(request);
+  const authorization = await authorizeBaristaRequest(request);
   if (!authorization.ok) {
     return Response.json(
       { error: authorization.message, code: "BARISTA_UNAUTHORIZED" },

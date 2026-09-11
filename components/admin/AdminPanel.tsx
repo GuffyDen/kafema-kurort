@@ -1,10 +1,9 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
 import {
-  getStoredBaristaAccessToken,
-  storeBaristaAccessToken,
   useBaristaOrders,
   type BaristaOrder,
   type OrderItem,
@@ -70,14 +69,13 @@ const timerThresholds: Record<BoardStatus, { warning: number; danger: number }> 
   };
 
 export function AdminPanel() {
-  const [accessToken, setAccessToken] = useState(() => getStoredBaristaAccessToken());
-  const [draftAccessToken, setDraftAccessToken] = useState(accessToken);
-  const { orders, error, status, isLoading, updateStatus } =
-    useBaristaOrders(accessToken);
+  const router = useRouter();
+  const { orders, error, status, updateStatus } = useBaristaOrders();
   const [updatingOrderIds, setUpdatingOrderIds] = useState<Set<string>>(
     () => new Set(),
   );
   const [statusUpdateError, setStatusUpdateError] = useState("");
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [activeView, setActiveView] = useState<BarView>("queue");
   const [archiveSearch, setArchiveSearch] = useState("");
   const [archiveDate, setArchiveDate] = useState(() => getLocalDateKey(new Date()));
@@ -94,11 +92,32 @@ export function AdminPanel() {
     return () => window.clearInterval(timer);
   }, []);
 
-  function submitAccess(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const token = draftAccessToken.trim();
-    storeBaristaAccessToken(token);
-    setAccessToken(token);
+  useEffect(() => {
+    if (status === 401) router.refresh();
+  }, [router, status]);
+
+  async function logout() {
+    if (isLoggingOut) return;
+    setStatusUpdateError("");
+    setIsLoggingOut(true);
+    try {
+      const response = await fetch("/api/auth/barista/logout", {
+        method: "POST",
+        cache: "no-store",
+      });
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => ({}))) as {
+          error?: string;
+        };
+        throw new Error(payload.error || "Не удалось выйти.");
+      }
+      router.refresh();
+    } catch (logoutError) {
+      setStatusUpdateError(
+        logoutError instanceof Error ? logoutError.message : "Не удалось выйти.",
+      );
+      setIsLoggingOut(false);
+    }
   }
 
   async function advanceOrder(orderId: string, nextStatus: OrderStatus) {
@@ -175,18 +194,6 @@ export function AdminPanel() {
     [visibleOrders],
   );
 
-  if (!accessToken || status === 401 || status === 503) {
-    return (
-      <BaristaAccessGate
-        error={error}
-        isLoading={isLoading}
-        token={draftAccessToken}
-        onChange={setDraftAccessToken}
-        onSubmit={submitAccess}
-      />
-    );
-  }
-
   return (
     <main className="min-h-screen bg-[#F7F7F7] px-6 py-5 text-[#1A1A1A] lg:px-8">
       <div className="mx-auto flex h-full min-h-[calc(100vh-40px)] w-full max-w-7xl flex-col gap-5">
@@ -226,14 +233,24 @@ export function AdminPanel() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2 rounded-[24px] bg-white px-3 py-2 shadow-[0_14px_34px_rgba(26,26,26,0.06)]">
-            <Counter label="Новые" value={stats.new} dot="bg-[#E30613]" />
-            <Counter
-              label="В работе"
-              value={stats.in_progress}
-              dot="bg-[#F5BD1F]"
-            />
-            <Counter label="Готовы" value={stats.ready} dot="bg-emerald-500" />
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-2 rounded-[24px] bg-white px-3 py-2 shadow-[0_14px_34px_rgba(26,26,26,0.06)]">
+              <Counter label="Новые" value={stats.new} dot="bg-[#E30613]" />
+              <Counter
+                label="В работе"
+                value={stats.in_progress}
+                dot="bg-[#F5BD1F]"
+              />
+              <Counter label="Готовы" value={stats.ready} dot="bg-emerald-500" />
+            </div>
+            <button
+              className="min-h-11 rounded-[18px] bg-white px-4 text-sm font-bold text-[#777777] shadow-[0_14px_34px_rgba(26,26,26,0.06)] transition hover:text-[#E30613] disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={isLoggingOut}
+              onClick={() => void logout()}
+              type="button"
+            >
+              {isLoggingOut ? "Выходим..." : "Выйти"}
+            </button>
           </div>
         </header>
 
@@ -274,59 +291,6 @@ export function AdminPanel() {
           />
         )}
       </div>
-    </main>
-  );
-}
-
-function BaristaAccessGate({
-  error,
-  isLoading,
-  onChange,
-  onSubmit,
-  token,
-}: {
-  error: string | null;
-  isLoading: boolean;
-  onChange: (value: string) => void;
-  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
-  token: string;
-}) {
-  return (
-    <main className="flex min-h-screen items-center justify-center bg-[#F7F7F7] px-5 py-8 text-[#1A1A1A]">
-      <form
-        className="w-full max-w-md rounded-[30px] bg-white p-6 shadow-[0_18px_42px_rgba(26,26,26,0.08)]"
-        onSubmit={onSubmit}
-      >
-        <div className="flex items-center gap-3">
-          <Image alt="Tablo" height={40} src="/tablo-logo.png" width={40} />
-          <div>
-            <h1 className="text-2xl font-bold">Доступ бариста</h1>
-            <p className="text-sm font-semibold text-[#777777]">Рабочее место Tablo</p>
-          </div>
-        </div>
-        <label className="mt-6 block">
-          <span className="text-sm font-bold">Ключ доступа</span>
-          <input
-            autoComplete="off"
-            className="mt-2 h-12 w-full rounded-[18px] border border-[#E8E8E8] px-4 outline-none transition focus:border-[#E30613]"
-            type="password"
-            value={token}
-            onChange={(event) => onChange(event.target.value)}
-          />
-        </label>
-        {error ? (
-          <p className="mt-3 text-sm font-bold text-[#8F2F24]" role="alert">
-            {error}
-          </p>
-        ) : null}
-        <button
-          className="mt-5 h-12 w-full rounded-[18px] bg-[#E30613] font-bold text-white disabled:cursor-not-allowed disabled:opacity-60"
-          disabled={isLoading || token.trim().length === 0}
-          type="submit"
-        >
-          {isLoading ? "Проверяем..." : "Открыть очередь"}
-        </button>
-      </form>
     </main>
   );
 }

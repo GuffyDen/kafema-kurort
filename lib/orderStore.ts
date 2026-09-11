@@ -18,7 +18,6 @@ export type {
 } from "@/lib/orderTypes";
 
 const activeOrderStorageKey = "kafema-active-server-order-v1";
-const baristaTokenStorageKey = "tablo-barista-access-token-v1";
 const customerPollIntervalMs = 4_000;
 const baristaPollIntervalMs = 3_000;
 
@@ -121,16 +120,14 @@ export function useCustomerOrder(reference: CustomerOrderReference | null) {
   };
 }
 
-export function useBaristaOrders(accessToken: string) {
+export function useBaristaOrders() {
   const [orders, setOrders] = useState<BaristaOrder[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<number | null>(null);
-  const [isLoading, setIsLoading] = useState(Boolean(accessToken));
+  const [isLoading, setIsLoading] = useState(true);
 
   const refresh = useCallback(async () => {
-    if (!accessToken) return;
     const response = await fetch("/api/bar/orders", {
-      headers: { Authorization: `Bearer ${accessToken}` },
       cache: "no-store",
     });
     const payload = await readJson<{ orders?: BaristaOrder[]; error?: string }>(response);
@@ -138,12 +135,9 @@ export function useBaristaOrders(accessToken: string) {
     setOrders(payload.orders);
     setError(null);
     setStatus(response.status);
-  }, [accessToken]);
+  }, []);
 
   useEffect(() => {
-    if (!accessToken) {
-      return;
-    }
     let cancelled = false;
     let timer: number | null = null;
     const poll = async () => {
@@ -173,7 +167,7 @@ export function useBaristaOrders(accessToken: string) {
       cancelled = true;
       if (timer !== null) window.clearTimeout(timer);
     };
-  }, [accessToken, refresh]);
+  }, [refresh]);
 
   const updateStatus = useCallback(
     async (orderId: string, nextStatus: OrderStatus) => {
@@ -182,7 +176,6 @@ export function useBaristaOrders(accessToken: string) {
         {
           method: "PATCH",
           headers: {
-            Authorization: `Bearer ${accessToken}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({ status: nextStatus }),
@@ -197,14 +190,14 @@ export function useBaristaOrders(accessToken: string) {
       );
       return updatedOrder;
     },
-    [accessToken],
+    [],
   );
 
   return {
-    orders: accessToken ? orders : [],
-    error: accessToken ? error : null,
-    status: accessToken ? status : null,
-    isLoading: accessToken ? isLoading : false,
+    orders,
+    error,
+    status,
+    isLoading,
     refresh,
     updateStatus,
   };
@@ -226,16 +219,6 @@ export function getStoredActiveOrderReference(): CustomerOrderReference | null {
 
 export function storeActiveOrderReference(reference: CustomerOrderReference) {
   localStorage.setItem(activeOrderStorageKey, JSON.stringify(reference));
-}
-
-export function getStoredBaristaAccessToken() {
-  if (typeof window === "undefined") return "";
-  return sessionStorage.getItem(baristaTokenStorageKey) ?? "";
-}
-
-export function storeBaristaAccessToken(token: string) {
-  if (!token) sessionStorage.removeItem(baristaTokenStorageKey);
-  else sessionStorage.setItem(baristaTokenStorageKey, token);
 }
 
 async function readJson<T>(response: Response): Promise<T> {

@@ -161,7 +161,6 @@ Required production storage variables:
 UPSTASH_REDIS_REST_URL
 UPSTASH_REDIS_REST_TOKEN
 CRON_SECRET
-BARISTA_ACCESS_TOKEN
 ```
 
 ## iiko requests
@@ -178,10 +177,55 @@ Only server-side modules call iiko. Current storefront requests are:
 | `POST /api/1/stop_lists` | Read current availability | No |
 
 Redis operations cover menu snapshots, overrides, stop-list snapshots, the
-short-lived stop-list refresh lock, and per-order records with a tenant-specific
-sorted index. The client has no Redis or iiko credentials. Customer order reads
-require an unguessable per-order token; barista list and status APIs require the
-server-configured `BARISTA_ACCESS_TOKEN`.
+short-lived stop-list refresh lock, per-order records with a tenant-specific
+sorted index, Barista sessions and the Barista login rate limit. The client has
+no Redis or iiko credentials. Customer order reads require an unguessable
+per-order token. Barista list and status APIs require a server-validated Barista
+session in an HttpOnly cookie.
+
+## Barista authentication
+
+`/bar` checks the session on the server before rendering the order queue. Login
+loads the `barista` account from the existing production Redis. The account key
+is tenant-scoped:
+
+```text
+tablo:tenant:<tenantId>:auth-account:v1:<role>
+```
+
+The JSON document contains `role`, normalized `username`, a scrypt
+`passwordHash`, `credentialRevision`, `createdAt` and `updatedAt`. The shared
+model accepts `barista` and `admin`; no Admin login is enabled yet. Passwords are
+never stored. `BARISTA_USERNAME`, `BARISTA_PASSWORD_HASH` and
+`AUTH_SESSION_SECRET` are not runtime variables.
+
+Create the first account only from a trusted local terminal:
+
+```bash
+npm run auth:bootstrap:production
+```
+
+Vercel intentionally does not export Sensitive values such as `REDIS_URL` to a
+local process. The command receives only a short-lived, project-scoped OIDC
+identity for the logged-in Vercel user, then asks for username, a hidden
+password twice and the explicit phrase `CREATE barista`. It sends those values over HTTPS to
+`POST /api/internal/auth/bootstrap`. The route verifies the OIDC signature,
+issuer, audience, local user identity and current Vercel project before it
+reads `REDIS_URL` inside the Vercel Function, creates the scrypt hash and writes
+with Redis `SET NX`. Neither the Redis URL, OIDC token, password nor hash is
+printed. An intentional future replacement still requires `--replace` and the
+phrase `REPLACE barista`; replacement increments `credentialRevision` through
+the existing compare-and-set repository operation.
+
+The login route creates a random 12-hour session and stores only its SHA-256
+token fingerprint in a tenant-scoped Redis key. The session records the current
+account `credentialRevision`. Every session check compares that value with the
+account in Redis, so a credential change invalidates all older sessions. The
+browser receives the opaque token in a host-only `HttpOnly`, `SameSite=Strict`
+cookie that is also `Secure` in production. Logout deletes the Redis session
+and expires the cookie. Repeated failed logins from one client address are
+temporarily limited in Redis for 15 minutes; no username, password or client
+address is stored in the rate-limit key.
 
 ## Admin diagnostics
 

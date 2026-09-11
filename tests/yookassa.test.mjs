@@ -16,6 +16,9 @@ process.env.YOOKASSA_MODE = 'test';
 process.env.YOOKASSA_SHOP_ID = '123';
 process.env.YOOKASSA_SECRET_KEY = 'test_fixture_not_a_real_key';
 process.env.NEXT_PUBLIC_APP_URL = 'https://test.example';
+delete process.env.BARISTA_USERNAME;
+delete process.env.BARISTA_PASSWORD_HASH;
+const fixtureAuthAccount = { role: 'barista', username: 'barista-fixture', passwordHash: 'fixture-hash-not-used', credentialRevision: 1, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' };
 for (const key of ['REDIS_URL','UPSTASH_REDIS_REST_URL','UPSTASH_REDIS_REST_TOKEN','KV_REST_API_URL','KV_REST_API_TOKEN','VERCEL_ENV','YOOKASSA_CRON_SECRET']) delete process.env[key];
 const menu = { categories: [{ id: 'coffee', isActive: true }], addonGroups: [], menuItems: [{ id: 'coffee', kind: 'drink', name: 'Кофе', categoryId: 'coffee', basePrice: 123.45, description: '250 мл', isActive: true, inStock: true, variants: [], addonGroupIds: [] }] };
 const deferred = [];
@@ -24,6 +27,7 @@ Module._load = function(id, parent, main) {
   if (id === 'server-only') return {};
   if (id === 'next/server') return { after: callback => deferred.push(callback) };
   if (id === '@/lib/tenantSettingsStore') return { getTenantId: () => 'test-tenant' };
+  if (id === '@/lib/serverAuthAccountRepository') return { getAuthAccount: async role => role === 'barista' ? fixtureAuthAccount : null };
   if (id === '@/lib/storefrontService') return { getStorefront: async () => ({ menu }) };
   if (id === '@/lib/storefrontAvailabilityService') return { getStorefrontAvailability: async () => ({ items: {} }) };
   if (id.startsWith('@/')) id = path.join(root, id.slice(2)) + '.ts';
@@ -38,6 +42,7 @@ const receipts = load('../lib/yookassaReceipt.ts');
 const fiscal = load('../lib/serverFiscalService.ts');
 const emailValidation = load('../lib/orderEmail.ts');
 const statusRoute = load('../app/api/bar/orders/[id]/status/route.ts');
+const baristaAuth = load('../lib/serverBaristaAuth.ts');
 const fiscalCron = load('../app/api/cron/yookassa-fiscal/route.ts');
 const webhook = load('../app/api/yookassa/webhook/route.ts');
 const paymentRoute = load('../app/api/orders/[id]/payment/route.ts');
@@ -497,10 +502,14 @@ async function readyForHandover() {
   await orders.updateServerOrderStatus(item.order.id, 'ready');
   return { ...item, order: await repo.getPersistedOrder('test-tenant', item.order.id) };
 }
+let baristaCookiePromise;
+async function getBaristaCookie() {
+  baristaCookiePromise ??= baristaAuth.createBaristaSession(fixtureAuthAccount).then(({ token }) => `tablo_barista_session=${token}`);
+  return baristaCookiePromise;
+}
 async function handOut(id) {
-  process.env.BARISTA_ACCESS_TOKEN = 'barista_fixture_token_not_real_123456';
   return statusRoute.PATCH(new Request('https://test.example', { method: 'PATCH',
-    headers: { Authorization: `Bearer ${process.env.BARISTA_ACCESS_TOKEN}`, 'Content-Type': 'application/json' },
+    headers: { Cookie: await getBaristaCookie(), Origin: 'https://test.example', 'Content-Type': 'application/json' },
     body: JSON.stringify({ status: 'completed' }),
   }), { params: Promise.resolve({ id }) });
 }
@@ -548,6 +557,19 @@ test('first receipt registration is tracked independently and reconciled without
     assert.equal(current.fiscal.prepayment.status, 'succeeded');
     assert.equal(current.status, 'new'); assert.equal(receiptPosts().length, count);
   } finally { initialReceiptRegistration = 'succeeded'; }
+});
+
+test('unauthenticated ready-to-completed request cannot issue an order or a receipt', async () => {
+  const { order } = await readyForHandover();
+  const count = receiptPosts().length;
+  const response = await statusRoute.PATCH(new Request('https://test.example', {
+    method: 'PATCH', headers: { Origin: 'https://test.example', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status: 'completed' }),
+  }), { params: Promise.resolve({ id: order.id }) });
+  assert.equal(response.status, 401);
+  assert.equal((await repo.getPersistedOrder('test-tenant', order.id)).status, 'ready');
+  await finishDeferred();
+  assert.equal(receiptPosts().length, count);
 });
 
 test('handout commits before provider IO and duplicate PATCH/worker calls create one settlement receipt', async () => {

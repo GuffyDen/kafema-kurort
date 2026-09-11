@@ -1,5 +1,8 @@
 import { noStoreHeaders, orderApiErrorResponse } from "@/lib/orderApiResponse";
-import { authorizeBaristaRequest } from "@/lib/serverOrderSecurity";
+import {
+  authorizeBaristaRequest,
+  isSameOriginBaristaRequest,
+} from "@/lib/serverBaristaAuth";
 import { updateServerOrderStatus, OrderServiceError } from "@/lib/serverOrderService";
 import { after } from "next/server";
 import { processFiscalOrder } from "@/lib/serverFiscalService";
@@ -12,11 +15,18 @@ export async function PATCH(
   request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
-  const authorization = authorizeBaristaRequest(request);
+  const authorization = await authorizeBaristaRequest(request);
   if (!authorization.ok) {
     return Response.json(
       { error: authorization.message, code: "BARISTA_UNAUTHORIZED" },
       { status: authorization.status, headers: noStoreHeaders },
+    );
+  }
+
+  if (!isSameOriginBaristaRequest(request)) {
+    return Response.json(
+      { error: "Запрос отклонён.", code: "INVALID_ORIGIN" },
+      { status: 403, headers: noStoreHeaders },
     );
   }
 
