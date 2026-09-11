@@ -97,15 +97,25 @@ export async function authenticateCredentials(
   if (!account) return false;
 
   const normalizedUsername = normalizeAuthUsername(username);
-  const passwordHash = parsePasswordHash(account.passwordHash);
-  if (!normalizedUsername || !passwordHash) return false;
+  if (!normalizedUsername) return false;
   const usernameMatches = safeEqualText(normalizedUsername, account.username);
-  const derived = await deriveScrypt(password, passwordHash);
-  const passwordMatches =
-    derived.length === passwordHash.digest.length &&
-    timingSafeEqual(derived, passwordHash.digest);
+  const passwordMatches = await verifyAuthAccountPassword(account, password);
 
   return usernameMatches && passwordMatches ? account : false;
+}
+
+export async function verifyAuthAccountPassword(
+  account: AuthAccount,
+  password: string,
+) {
+  if (typeof password !== "string" || password.length > 1_024) return false;
+  const passwordHash = parsePasswordHash(account.passwordHash);
+  if (!passwordHash) return false;
+  const derived = await deriveScrypt(password, passwordHash);
+  return (
+    derived.length === passwordHash.digest.length &&
+    timingSafeEqual(derived, passwordHash.digest)
+  );
 }
 
 export async function consumeLoginAttempt(

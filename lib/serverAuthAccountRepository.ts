@@ -1,5 +1,6 @@
 import "server-only";
 
+import { normalizeAuthUsername } from "@/lib/authValidation";
 import { getTenantId } from "@/lib/tenantSettingsStore";
 import {
   executeRedisCommand,
@@ -144,10 +145,7 @@ export function getAuthAccountRedisKey(tenantId: string, role: AuthRole) {
   return `tablo:tenant:${tenantId}:auth-account:v1:${role}`;
 }
 
-export function normalizeAuthUsername(value: string) {
-  const normalized = value.normalize("NFKC").trim().toLowerCase();
-  return /^[a-z0-9][a-z0-9._-]{2,63}$/.test(normalized) ? normalized : null;
-}
+export { normalizeAuthUsername } from "@/lib/authValidation";
 
 export function isSupportedPasswordHash(value: string) {
   const parts = value.split("$");

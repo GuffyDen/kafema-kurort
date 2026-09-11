@@ -48,6 +48,9 @@ const accounts = {
 };
 let storefrontSyncCalls = 0;
 
+class AuthAccountStorageError extends Error {}
+class AuthAccountConflictError extends Error {}
+
 function normalizeUsername(value) {
   const normalized = value.normalize("NFKC").trim().toLowerCase();
   return /^[a-z0-9][a-z0-9._-]{2,63}$/.test(normalized) ? normalized : null;
@@ -60,6 +63,23 @@ Module._load = function (id, parent, main) {
   if (id === "@/lib/serverAuthAccountRepository") {
     return {
       getAuthAccount: async (role) => accounts[role] ?? null,
+      replaceAuthAccountCredentials: async (input) => {
+        const current = accounts[input.role];
+        if (!current || current.credentialRevision !== input.expectedCredentialRevision) {
+          throw new AuthAccountConflictError("Auth account changed concurrently.");
+        }
+        const updated = {
+          ...current,
+          username: normalizeUsername(input.username),
+          passwordHash: input.passwordHash,
+          credentialRevision: current.credentialRevision + 1,
+          updatedAt: input.now ?? new Date().toISOString(),
+        };
+        accounts[input.role] = updated;
+        return updated;
+      },
+      AuthAccountStorageError,
+      AuthAccountConflictError,
       isSupportedPasswordHash: (value) => /^scrypt\$/.test(value),
       normalizeAuthUsername: normalizeUsername,
     };
@@ -98,6 +118,7 @@ const baristaAuth = load("../lib/serverBaristaAuth.ts");
 const adminRoute = load("../lib/serverAdminRoute.ts");
 const storefrontRoute = load("../app/api/admin/storefront/route.ts");
 const storefrontSyncRoute = load("../app/api/admin/storefront/sync/route.ts");
+const authAccountsRoute = load("../app/api/admin/auth/accounts/route.ts");
 
 after(() => fs.rmSync(temp, { recursive: true, force: true }));
 
@@ -117,6 +138,20 @@ function login(body, ip = `198.51.100.${Math.floor(Math.random() * 200) + 1}`) {
 
 function cookieFrom(response) {
   return response.headers.get("set-cookie")?.split(";")[0] ?? "";
+}
+
+function updateAccount(cookie, body, origin = "https://test.example") {
+  return authAccountsRoute.PATCH(
+    new Request("https://test.example/api/admin/auth/accounts", {
+      method: "PATCH",
+      headers: {
+        Cookie: cookie,
+        "Content-Type": "application/json",
+        Origin: origin,
+      },
+      body: JSON.stringify(body),
+    }),
+  );
 }
 
 test("Admin login creates an opaque role-bound session", async () => {
@@ -305,6 +340,7 @@ test("credentialRevision invalidates an old Admin session", async () => {
 
 test("every Admin HTTP entry point uses server-side Admin authorization", () => {
   const routes = [
+    ["app/api/admin/auth/accounts/route.ts", 2, 1],
     ["app/api/admin/settings/qr/route.ts", 2, 1],
     ["app/api/admin/settings/qr/table-stand/route.ts", 2, 2],
     ["app/api/admin/settings/qr/table-stand/upload/route.ts", 1, 1],
@@ -333,12 +369,13 @@ test("every Admin HTTP entry point uses server-side Admin authorization", () => 
     );
     handlerCount += handlers.length;
   }
-  assert.equal(handlerCount, 15);
+  assert.equal(handlerCount, 17);
 });
 
 test("Admin client code contains no credentials, auth storage or server secrets", () => {
   const files = [
     "components/manage/AdminLogin.tsx",
+    "components/manage/AccessSecuritySection.tsx",
     "components/manage/ManagePanel.tsx",
     "components/manage/StorefrontSection.tsx",
     "components/manage/QrSection.tsx",
@@ -353,6 +390,235 @@ test("Admin client code contains no credentials, auth storage or server secrets"
   );
   assert.doesNotMatch(source, /server(?:Admin|Barista|AuthAccount)Auth/);
   assert.doesNotMatch(source, /passwordHash|sessionStorage/);
+});
+
+test("Admin reads only safe account settings and auth settings reject unauthorized roles", async () => {
+  const { token: adminToken } = await adminAuth.createAdminSession(accounts.admin);
+  const adminCookie = `tablo_admin_session=${adminToken}`;
+  const response = await authAccountsRoute.GET(
+    new Request("https://test.example/api/admin/auth/accounts", {
+      headers: { Cookie: adminCookie },
+    }),
+  );
+  assert.equal(response.status, 200);
+  const serialized = JSON.stringify(await response.json());
+  assert.match(serialized, /"role":"admin"/);
+  assert.match(serialized, /"role":"barista"/);
+  assert.doesNotMatch(serialized, /passwordHash|credentialRevision|fixture-admin-password/);
+
+  assert.equal(
+    (
+      await authAccountsRoute.GET(
+        new Request("https://test.example/api/admin/auth/accounts"),
+      )
+    ).status,
+    401,
+  );
+  const { token: baristaToken } = await baristaAuth.createBaristaSession(accounts.barista);
+  assert.equal(
+    (
+      await updateAccount(`tablo_barista_session=${baristaToken}`, {
+        role: "barista",
+        username: "blocked-barista",
+        newPassword: "",
+        repeatPassword: "",
+      })
+    ).status,
+    401,
+  );
+  assert.equal(
+    (
+      await updateAccount(
+        adminCookie,
+        {
+          role: "barista",
+          username: "blocked-origin",
+          newPassword: "",
+          repeatPassword: "",
+        },
+        "https://attacker.example",
+      )
+    ).status,
+    403,
+  );
+});
+
+test("Admin username and password updates preserve atomicity and invalidate old sessions", async () => {
+  const originalPassword = fixturePassword;
+  const originalHash = accounts.admin.passwordHash;
+  const originalRevision = accounts.admin.credentialRevision;
+  const { token } = await adminAuth.createAdminSession(accounts.admin);
+  const cookie = `tablo_admin_session=${token}`;
+  const usernameResponse = await updateAccount(cookie, {
+    role: "admin",
+    username: " Updated.Admin ",
+    newPassword: "",
+    repeatPassword: "",
+  });
+  assert.equal(usernameResponse.status, 200);
+  assert.match(usernameResponse.headers.get("set-cookie"), /Max-Age=0/);
+  assert.equal(accounts.admin.username, "updated.admin");
+  assert.equal(accounts.admin.passwordHash, originalHash);
+  assert.equal(accounts.admin.credentialRevision, originalRevision + 1);
+  assert.equal(
+    (
+      await adminAuth.authorizeAdminRequest(
+        new Request("https://test.example/api/admin/auth/accounts", {
+          headers: { Cookie: cookie },
+        }),
+      )
+    ).ok,
+    false,
+  );
+  assert.equal(await adminAuth.authenticateAdminCredentials(fixtureUsername, originalPassword), false);
+  assert.equal(
+    (await adminAuth.authenticateAdminCredentials("updated.admin", originalPassword)).role,
+    "admin",
+  );
+
+  const { token: passwordToken } = await adminAuth.createAdminSession(accounts.admin);
+  const passwordCookie = `tablo_admin_session=${passwordToken}`;
+  const beforeRejectedRevision = accounts.admin.credentialRevision;
+  const rejected = await updateAccount(passwordCookie, {
+    role: "admin",
+    username: "updated.admin",
+    currentPassword: "incorrect-current-password",
+    newPassword: "replacement-admin-password-not-real",
+    repeatPassword: "replacement-admin-password-not-real",
+  });
+  assert.equal(rejected.status, 401);
+  assert.equal((await rejected.json()).code, "INVALID_CURRENT_PASSWORD");
+  assert.equal(accounts.admin.credentialRevision, beforeRejectedRevision);
+
+  const updated = await updateAccount(passwordCookie, {
+    role: "admin",
+    username: "updated.admin",
+    currentPassword: originalPassword,
+    newPassword: "replacement-admin-password-not-real",
+    repeatPassword: "replacement-admin-password-not-real",
+  });
+  assert.equal(updated.status, 200);
+  assert.equal(accounts.admin.credentialRevision, beforeRejectedRevision + 1);
+  assert.equal(await adminAuth.authenticateAdminCredentials("updated.admin", originalPassword), false);
+  assert.equal(
+    (
+      await adminAuth.authenticateAdminCredentials(
+        "updated.admin",
+        "replacement-admin-password-not-real",
+      )
+    ).role,
+    "admin",
+  );
+  assert.equal(
+    (
+      await adminAuth.authorizeAdminRequest(
+        new Request("https://test.example/api/admin/auth/accounts", {
+          headers: { Cookie: passwordCookie },
+        }),
+      )
+    ).ok,
+    false,
+  );
+});
+
+test("Admin updates Barista username/password without old password and revokes Barista sessions", async () => {
+  const oldUsername = accounts.barista.username;
+  const oldPassword = "fixture-barista-password-not-real";
+  const oldHash = accounts.barista.passwordHash;
+  const oldRevision = accounts.barista.credentialRevision;
+  const { token: adminToken } = await adminAuth.createAdminSession(accounts.admin);
+  const adminCookie = `tablo_admin_session=${adminToken}`;
+  const { token: baristaToken } = await baristaAuth.createBaristaSession(accounts.barista);
+  const baristaRequest = new Request("https://test.example/api/bar/orders", {
+    headers: { Cookie: `tablo_barista_session=${baristaToken}` },
+  });
+
+  const renamed = await updateAccount(adminCookie, {
+    role: "barista",
+    username: " Barista.Team ",
+    newPassword: "",
+    repeatPassword: "",
+  });
+  assert.equal(renamed.status, 200);
+  assert.equal(accounts.barista.username, "barista.team");
+  assert.equal(accounts.barista.passwordHash, oldHash);
+  assert.equal(accounts.barista.credentialRevision, oldRevision + 1);
+  assert.equal((await baristaAuth.authorizeBaristaRequest(baristaRequest)).ok, false);
+  assert.equal(await baristaAuth.authenticateBaristaCredentials(oldUsername, oldPassword), false);
+  assert.equal(
+    (await baristaAuth.authenticateBaristaCredentials("barista.team", oldPassword)).role,
+    "barista",
+  );
+
+  const newPassword = "replacement-barista-password-not-real";
+  const passwordRevision = accounts.barista.credentialRevision;
+  const passwordUpdated = await updateAccount(adminCookie, {
+    role: "barista",
+    username: "barista.team",
+    newPassword,
+    repeatPassword: newPassword,
+  });
+  assert.equal(passwordUpdated.status, 200);
+  assert.equal(accounts.barista.credentialRevision, passwordRevision + 1);
+  assert.equal(await baristaAuth.authenticateBaristaCredentials("barista.team", oldPassword), false);
+  assert.equal(
+    (await baristaAuth.authenticateBaristaCredentials("barista.team", newPassword)).role,
+    "barista",
+  );
+});
+
+test("credential updates validate username, password, confirmation and concurrent revisions", async () => {
+  const { token } = await adminAuth.createAdminSession(accounts.admin);
+  const cookie = `tablo_admin_session=${token}`;
+  for (const [body, code] of [
+    [
+      { role: "barista", username: "!", newPassword: "", repeatPassword: "" },
+      "INVALID_USERNAME",
+    ],
+    [
+      {
+        role: "barista",
+        username: accounts.barista.username,
+        newPassword: "short",
+        repeatPassword: "short",
+      },
+      "INVALID_PASSWORD",
+    ],
+    [
+      {
+        role: "barista",
+        username: accounts.barista.username,
+        newPassword: "long-enough-password",
+        repeatPassword: "different-password",
+      },
+      "PASSWORD_MISMATCH",
+    ],
+  ]) {
+    const response = await updateAccount(cookie, body);
+    assert.equal(response.status, 400);
+    assert.equal((await response.json()).code, code);
+  }
+
+  const revision = accounts.barista.credentialRevision;
+  const currentHash = accounts.barista.passwordHash;
+  const repository = load("@/lib/serverAuthAccountRepository");
+  const outcomes = await Promise.allSettled([
+    repository.replaceAuthAccountCredentials({
+      role: "barista",
+      username: "concurrent-one",
+      passwordHash: currentHash,
+      expectedCredentialRevision: revision,
+    }),
+    repository.replaceAuthAccountCredentials({
+      role: "barista",
+      username: "concurrent-two",
+      passwordHash: currentHash,
+      expectedCredentialRevision: revision,
+    }),
+  ]);
+  assert.equal(outcomes.filter((result) => result.status === "fulfilled").length, 1);
+  assert.equal(outcomes.filter((result) => result.status === "rejected").length, 1);
+  assert.equal(accounts.barista.credentialRevision, revision + 1);
 });
 
 test("production bootstrap exposes an explicit Admin command without changing Barista", () => {

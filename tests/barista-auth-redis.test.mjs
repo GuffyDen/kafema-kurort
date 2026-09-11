@@ -198,3 +198,27 @@ test("shared account model supports admin and refuses implicit overwrite", async
   );
   assert.equal((await accountRepository.getAuthAccount("admin")).username, "admin");
 });
+
+test("Redis credential CAS accepts one of two concurrent updates", async () => {
+  const current = await accountRepository.getAuthAccount("barista");
+  const outcomes = await Promise.allSettled([
+    accountRepository.replaceAuthAccountCredentials({
+      role: "barista",
+      username: "barista-cas-one",
+      passwordHash: current.passwordHash,
+      expectedCredentialRevision: current.credentialRevision,
+    }),
+    accountRepository.replaceAuthAccountCredentials({
+      role: "barista",
+      username: "barista-cas-two",
+      passwordHash: current.passwordHash,
+      expectedCredentialRevision: current.credentialRevision,
+    }),
+  ]);
+  assert.equal(outcomes.filter((result) => result.status === "fulfilled").length, 1);
+  assert.equal(outcomes.filter((result) => result.status === "rejected").length, 1);
+  assert.equal(
+    (await accountRepository.getAuthAccount("barista")).credentialRevision,
+    current.credentialRevision + 1,
+  );
+});

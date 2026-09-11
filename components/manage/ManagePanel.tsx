@@ -15,6 +15,7 @@ import {
 } from "@/lib/baristaSettings";
 import { StorefrontSection } from "@/components/manage/StorefrontSection";
 import { QrSection } from "@/components/manage/QrSection";
+import { AccessSecuritySection } from "@/components/manage/AccessSecuritySection";
 
 type AdminSection = "connections" | "storefront" | "barista" | "qr" | "settings";
 
@@ -1307,37 +1308,40 @@ function SettingsSection({
   setSettings: (settings: GeneralSettings) => void;
 }) {
   return (
-    <Card>
-      <div className="grid gap-4 lg:grid-cols-2">
-        <TextField
-          label="Название кофейни"
-          value={settings.coffeehouseName}
-          onChange={(coffeehouseName) =>
-            setSettings({ ...settings, coffeehouseName })
-          }
-        />
-        <TextField
-          label="Логотип"
-          value={settings.logoLabel}
-          onChange={(logoLabel) => setSettings({ ...settings, logoLabel })}
-        />
-        <TextField
-          label="Цвет темы"
-          value={settings.themeColor}
-          onChange={(themeColor) => setSettings({ ...settings, themeColor })}
-        />
-        <TextField
-          label="Контакты"
-          value={settings.contacts}
-          onChange={(contacts) => setSettings({ ...settings, contacts })}
-        />
-        <TextArea
-          label="Баннеры"
-          value={settings.banners}
-          onChange={(banners) => setSettings({ ...settings, banners })}
-        />
-      </div>
-    </Card>
+    <div className="space-y-5">
+      <Card>
+        <div className="grid gap-4 lg:grid-cols-2">
+          <TextField
+            label="Название кофейни"
+            value={settings.coffeehouseName}
+            onChange={(coffeehouseName) =>
+              setSettings({ ...settings, coffeehouseName })
+            }
+          />
+          <TextField
+            label="Логотип"
+            value={settings.logoLabel}
+            onChange={(logoLabel) => setSettings({ ...settings, logoLabel })}
+          />
+          <TextField
+            label="Цвет темы"
+            value={settings.themeColor}
+            onChange={(themeColor) => setSettings({ ...settings, themeColor })}
+          />
+          <TextField
+            label="Контакты"
+            value={settings.contacts}
+            onChange={(contacts) => setSettings({ ...settings, contacts })}
+          />
+          <TextArea
+            label="Баннеры"
+            value={settings.banners}
+            onChange={(banners) => setSettings({ ...settings, banners })}
+          />
+        </div>
+      </Card>
+      <AccessSecuritySection />
+    </div>
   );
 }
 

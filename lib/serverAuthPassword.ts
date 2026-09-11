@@ -1,13 +1,14 @@
 import "server-only";
 
 import { randomBytes, scrypt } from "node:crypto";
+import { isValidAuthPassword } from "@/lib/authValidation";
 
 const cost = 65_536;
 const blockSize = 8;
 const parallelization = 1;
 
 export async function hashAuthPassword(password: string) {
-  if (password.length < 12 || password.length > 1_024) {
+  if (!isValidAuthPassword(password)) {
     throw new Error("INVALID_PASSWORD");
   }
 
